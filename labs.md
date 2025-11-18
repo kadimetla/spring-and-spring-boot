@@ -648,12 +648,12 @@ void getAstroResponseFromInterface(@Autowired AstroInterface astroInterface) {
 
 7. That test should pass. Note that for synchronous access, simply change the return type of the method inside the `getAstroResponse` method of `AstroInterface` to `AstroResponse` instead of the `Mono`. See the documentation for additional details.
 
-## Basic REST API Consumption with RestClient
+## Basic REST API Consumption with HTTP Interfaces
 
-This exercise introduces Spring Boot's modern `RestClient` for consuming external REST APIs. We'll use the JSON Placeholder API (https://jsonplaceholder.typicode.com/), a free testing service perfect for learning API consumption without authentication complexity.
+This exercise applies the HTTP Interface pattern you just learned to consume the JSON Placeholder API (https://jsonplaceholder.typicode.com/), a free testing service perfect for practicing declarative REST clients.
 
 > [!NOTE]
-> `RestClient` was introduced in Spring 6.1 as the modern replacement for `RestTemplate`. It provides a fluent API for synchronous HTTP calls.
+> This lab builds directly on the HTTP Interfaces pattern from the previous exercise. We'll use `@GetExchange`, `@PostExchange`, and other declarative annotations instead of manual `RestClient` calls.
 
 ### Step 1: Create Domain Classes
 
@@ -690,85 +690,73 @@ This exercise introduces Spring Boot's modern `RestClient` for consuming externa
    ) {}
    ```
 
-### Step 2: Create Basic Service
+### Step 2: Create HTTP Interface
 
-4. Create `BasicJsonPlaceholderService` in `com.kousenit.restclient.services`:
+4. Create `JsonPlaceholderInterface` in `com.kousenit.restclient.services`:
 
    ```java
-   @Service
-   public class BasicJsonPlaceholderService {
-       private final RestClient restClient;
+   public interface JsonPlaceholderInterface {
 
-       public BasicJsonPlaceholderService() {
-           this.restClient = RestClient.builder()
-                   .baseUrl("https://jsonplaceholder.typicode.com")
-                   .build();
-       }
+       @GetExchange("/users")
+       List<SimpleUser> getAllUsers();
 
-       // Get all users
-       public List<SimpleUser> getAllUsers() {
-           return restClient.get()
-                   .uri("/users")
-                   .accept(MediaType.APPLICATION_JSON)
-                   .retrieve()
-                   .body(new ParameterizedTypeReference<List<SimpleUser>>() {});
-       }
+       @GetExchange("/users/{id}")
+       SimpleUser getUserById(@PathVariable Long id);
 
-       // Get user by ID
-       public Optional<SimpleUser> getUserById(Long id) {
-           try {
-               SimpleUser user = restClient.get()
-                       .uri("/users/{id}", id)
-                       .accept(MediaType.APPLICATION_JSON)
-                       .retrieve()
-                       .body(SimpleUser.class);
-               return Optional.ofNullable(user);
-           } catch (Exception e) {
-               return Optional.empty();
-           }
-       }
+       @GetExchange("/users/{userId}/posts")
+       List<Post> getPostsByUserId(@PathVariable Long userId);
 
-       // Get posts by user
-       public List<Post> getPostsByUserId(Long userId) {
-           return restClient.get()
-                   .uri("/users/{userId}/posts", userId)
-                   .accept(MediaType.APPLICATION_JSON)
-                   .retrieve()
-                   .body(new ParameterizedTypeReference<>() {});
-       }
+       @PostExchange("/posts")
+       Post createPost(@RequestBody Post post);
 
-       // Create a new post
-       public Post createPost(Post post) {
-           return restClient.post()
-                   .uri("/posts")
-                   .contentType(MediaType.APPLICATION_JSON)
-                   .accept(MediaType.APPLICATION_JSON)
-                   .body(post)
-                   .retrieve()
-                   .body(Post.class);
-       }
+       @GetExchange("/posts")
+       List<Post> getAllPosts();
    }
    ```
 
-### Step 3: Create Tests
+   > [!NOTE]
+   > Notice how much cleaner this is compared to manual `RestClient` calls. Spring generates all the implementation code for you based on these annotations.
 
-5. Create `BasicJsonPlaceholderServiceTest`:
+### Step 3: Create Proxy Factory Bean
+
+5. Add the proxy factory bean to your `RestClientApplication` class (or create a separate `@Configuration` class):
+
+   ```java
+   @Bean
+   public JsonPlaceholderInterface jsonPlaceholderInterface() {
+       RestClient client = RestClient.builder()
+               .baseUrl("https://jsonplaceholder.typicode.com")
+               .build();
+       RestClientAdapter adapter = RestClientAdapter.create(client);
+       HttpServiceProxyFactory factory = HttpServiceProxyFactory
+               .builderFor(adapter)
+               .build();
+       return factory.createClient(JsonPlaceholderInterface.class);
+   }
+   ```
+
+   > [!TIP]
+   > For a reactive version, replace `RestClient` with `WebClient` and use `WebClientAdapter` instead. You can also change the return types in the interface to `Mono<T>` or `Flux<T>`.
+
+### Step 4: Create Tests
+
+6. Create `JsonPlaceholderInterfaceTest`:
 
    ```java
    @SpringBootTest
-   class BasicJsonPlaceholderServiceTest {
-       private final Logger logger = LoggerFactory.getLogger(BasicJsonPlaceholderServiceTest.class);
+   class JsonPlaceholderInterfaceTest {
+       private final Logger logger = LoggerFactory.getLogger(JsonPlaceholderInterfaceTest.class);
 
        @Autowired
-       private BasicJsonPlaceholderService service;
+       private JsonPlaceholderInterface jsonPlaceholder;
 
        @Test
        void getAllUsers() {
-           List<SimpleUser> users = service.getAllUsers();
-           
+           List<SimpleUser> users = jsonPlaceholder.getAllUsers();
+
            assertNotNull(users);
            assertEquals(10, users.size());
-           
+
            SimpleUser firstUser = users.get(0);
            assertEquals("Leanne Graham", firstUser.name());
            logger.info("Retrieved {} users", users.size());
@@ -776,22 +764,17 @@ This exercise introduces Spring Boot's modern `RestClient` for consuming externa
 
        @Test
        void getUserById() {
-           Optional<SimpleUser> userOpt = service.getUserById(1L);
-           
-           assertTrue(userOpt.isPresent());
-           assertEquals("Leanne Graham", userOpt.get().name());
-       }
+           SimpleUser user = jsonPlaceholder.getUserById(1L);
 
-       @Test
-       void getUserByIdNotFound() {
-           Optional<SimpleUser> userOpt = service.getUserById(999L);
-           assertFalse(userOpt.isPresent());
+           assertNotNull(user);
+           assertEquals("Leanne Graham", user.name());
+           assertEquals("Bret", user.username());
        }
 
        @Test
        void getPostsByUserId() {
-           List<Post> posts = service.getPostsByUserId(1L);
-           
+           List<Post> posts = jsonPlaceholder.getPostsByUserId(1L);
+
            assertNotNull(posts);
            assertEquals(10, posts.size());
            posts.forEach(post -> assertEquals(1L, post.userId()));
@@ -800,24 +783,89 @@ This exercise introduces Spring Boot's modern `RestClient` for consuming externa
        @Test
        void createPost() {
            Post newPost = new Post(1L, null, "Test Title", "Test Body");
-           Post created = service.createPost(newPost);
-           
+           Post created = jsonPlaceholder.createPost(newPost);
+
            assertNotNull(created.id());
            assertEquals("Test Title", created.title());
+           assertEquals("Test Body", created.body());
+       }
+
+       @Test
+       void getAllPosts() {
+           List<Post> posts = jsonPlaceholder.getAllPosts();
+
+           assertNotNull(posts);
+           assertEquals(100, posts.size());
+           logger.info("Retrieved {} posts", posts.size());
+       }
+   }
+   ```
+
+### Step 5: Optional - Add Error Handling
+
+7. For production use, wrap the interface with a service that handles errors:
+
+   ```java
+   @Service
+   public class JsonPlaceholderService {
+       private final JsonPlaceholderInterface client;
+       private final Logger logger = LoggerFactory.getLogger(JsonPlaceholderService.class);
+
+       public JsonPlaceholderService(JsonPlaceholderInterface client) {
+           this.client = client;
+       }
+
+       public Optional<SimpleUser> getUserByIdSafe(Long id) {
+           try {
+               return Optional.ofNullable(client.getUserById(id));
+           } catch (HttpClientErrorException.NotFound e) {
+               logger.warn("User {} not found", id);
+               return Optional.empty();
+           } catch (Exception e) {
+               logger.error("Error fetching user {}", id, e);
+               throw new ServiceUnavailableException("Unable to fetch user", e);
+           }
        }
    }
    ```
 
 ### Key Learning Points
 
-- **RestClient Basics**: Fluent API for building HTTP requests
-- **Type Safety**: Using `ParameterizedTypeReference` for generic collections
-- **Path Parameters**: Using URI templates with `{id}` placeholders
-- **Error Handling**: Wrapping calls in try-catch for Optional returns
-- **Content Negotiation**: Setting Accept and Content-Type headers
+- **Declarative API Clients**: Define interfaces instead of writing implementation code
+- **HTTP Exchange Annotations**: `@GetExchange`, `@PostExchange`, `@PutExchange`, `@DeleteExchange`
+- **Path Variables**: Use `@PathVariable` for URL parameters
+- **Request Bodies**: Use `@RequestBody` for POST/PUT payloads
+- **Type Safety**: Collections work automatically without `ParameterizedTypeReference`
+- **Less Boilerplate**: Spring generates all the HTTP client code
+- **Consistent Pattern**: Same approach works for any REST API
 
 > [!TIP]
-> Start with simple domain models and basic operations. You can add complexity as you become comfortable with the fundamentals.
+> HTTP Interfaces are ideal for well-defined external APIs. The declarative approach makes your code more maintainable and easier to test with mocks.
+
+### Comparison: Before and After
+
+**Before (Manual RestClient):**
+```java
+public List<SimpleUser> getAllUsers() {
+    return restClient.get()
+            .uri("/users")
+            .accept(MediaType.APPLICATION_JSON)
+            .retrieve()
+            .body(new ParameterizedTypeReference<List<SimpleUser>>() {});
+}
+```
+
+**After (HTTP Interface):**
+```java
+@GetExchange("/users")
+List<SimpleUser> getAllUsers();
+```
+
+The declarative approach is:
+- **Shorter**: One line vs. six
+- **Clearer**: Intent is obvious from the annotation
+- **Type-safe**: No need for `ParameterizedTypeReference`
+- **Testable**: Easy to mock the interface
 
 [Back to Table of Contents](#table-of-contents)
 
