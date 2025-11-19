@@ -54,3 +54,4 @@ out/
 # Application specific
 astronauts.json
 node_modules/
+.claude/settings.local.json
