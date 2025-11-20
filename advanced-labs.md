@@ -13,7 +13,7 @@
 1. [Lab 1: Create the Product Entity](#lab-1-create-the-product-entity)
 2. [Lab 2: Create the Repository Layer with Custom Queries](#lab-2-create-the-repository-layer-with-custom-queries)
 3. [Lab 3: Create DTOs for API Boundaries](#lab-3-create-dtos-for-api-boundaries)
-4. [Lab 4: Create Custom Exception Classes](#lab-4-create-custom-exception-classes)
+4. [Lab 4: Add Bean Validation and Custom Exceptions](#lab-4-add-bean-validation-and-custom-exceptions)
 5. [Lab 5: Add Service Layer with Transaction Management](#lab-5-add-service-layer-with-transaction-management)
 6. [Lab 6: Create REST Controller with Full CRUD Operations](#lab-6-create-rest-controller-with-full-crud-operations)
 7. [Lab 7: Add Global Exception Handling with RFC 7807 ProblemDetail](#lab-7-add-global-exception-handling-with-rfc-7807-problemdetail)
@@ -25,7 +25,8 @@
 
 These advanced labs demonstrate enterprise-level Spring Boot patterns used in production applications. You'll build a complete shopping API with:
 
-- **Modern Entity Design** - JPA entities with validation and indexes
+- **Progressive Entity Design** - Start with basic JPA, add validation in Lab 4
+- **Bean Validation** - Comprehensive validation framework (Jakarta Validation)
 - **DTO Pattern** - Separation between domain model and API contracts
 - **Clean Service Layer** - Business logic without interface bloat
 - **RESTful API Design** - Proper HTTP semantics and status codes
@@ -33,6 +34,8 @@ These advanced labs demonstrate enterprise-level Spring Boot patterns used in pr
 - **Transaction Management** - Proper use of @Transactional
 - **Test Isolation** - Modern testing patterns with @DirtiesContext
 - **Production Configuration** - Comprehensive application.yml with profiles
+
+The labs follow a **progressive learning approach**: Lab 1 introduces basic JPA entities, and Lab 4 adds validation annotations to demonstrate Bean Validation as a distinct concept.
 
 ## Project Setup
 
@@ -137,7 +140,9 @@ tasks.named('test') {
 
 ## Lab 1: Create the Product Entity
 
-**Objective**: Create a production-ready JPA entity with validation, indexes, and business logic methods.
+**Objective**: Create a basic JPA entity with Lombok, indexes, and business logic methods.
+
+> **Note**: We'll add validation annotations in Lab 4 to demonstrate bean validation as a distinct concept.
 
 ### Step 1.1: Create the Product Entity
 
@@ -147,7 +152,6 @@ Create `src/main/java/com/kousenit/shopping/entities/Product.java`:
 package com.kousenit.shopping.entities;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
@@ -169,39 +173,29 @@ public class Product {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @NotBlank(message = "Product name is required")
-    @Size(min = 3, max = 100, message = "Product name must be between 3 and 100 characters")
     @Column(nullable = false)
     private String name;
 
-    @DecimalMin(value = "0.01", message = "Price must be greater than 0")
-    @DecimalMax(value = "999999.99", message = "Price must be less than 1,000,000")
-    @NotNull(message = "Price is required")
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal price;
 
-    @Size(max = 500, message = "Description cannot exceed 500 characters")
     @Column(length = 500)
     private String description;
 
-    @PositiveOrZero(message = "Quantity must be greater than or equal to zero")
-    @NotNull(message = "Quantity is required")
     @Column(nullable = false)
     private Integer quantity;
 
-    @NotBlank(message = "SKU is required")
-    @Pattern(regexp = "^[A-Z]{3}-[0-9]{6}$",
-             message = "SKU must follow the pattern: 3 uppercase letters, hyphen, 6 digits (e.g., ABC-123456)")
     @Column(unique = true, nullable = false)
     private String sku;
 
-    @Email(message = "Contact email must be a valid email address")
     private String contactEmail;
 
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @Column(name = "created_at", nullable = false, updatable = false,
+            columnDefinition = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
     private LocalDateTime createdAt;
 
-    @Column(name = "updated_at")
+    @Column(name = "updated_at",
+            columnDefinition = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
     private LocalDateTime updatedAt;
 
     @PrePersist
@@ -236,11 +230,15 @@ public class Product {
 ```
 
 **Key Features:**
+- **Basic JPA Mapping** - `@Entity`, `@Table`, `@Column` annotations
 - **Database Indexes** - Optimized queries for SKU (unique) and name lookups
-- **Bean Validation** - Comprehensive validation annotations
-- **Audit Fields** - Automatic timestamps with @PrePersist and @PreUpdate
+- **Audit Fields** - Automatic timestamps using both JPA callbacks and database defaults
+  - `@PrePersist`/`@PreUpdate` - JPA lifecycle callbacks set values when saving through the application
+  - `columnDefinition = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"` - Database defaults allow manual SQL inserts via H2 console
 - **Business Logic** - Stock management methods in the entity
-- **Lombok** - Clean code with @Data (generates getters, setters, equals, hashCode, toString)
+- **Lombok** - Clean code with `@Data` (generates getters, setters, equals, hashCode, toString)
+
+> **What's Missing?** Validation annotations! We'll add those in Lab 4 when we learn about Bean Validation.
 
 ### Step 1.2: Create Basic Entity Tests
 
@@ -535,6 +533,8 @@ class ProductRepositoryTest {
 - **Validation**: Different validation rules for input vs. domain
 - **Immutability**: Records are perfect for request/response objects
 
+> **Teaching Note**: DTOs include validation annotations even though we haven't added them to the entity yet (that comes in Lab 4). This demonstrates an important principle: **DTOs validate API input, entities represent domain state**. They can have different validation rules.
+
 ### Step 3.1: Create ProductRequest DTO
 
 Create `src/main/java/com/kousenit/shopping/dto/ProductRequest.java`:
@@ -704,11 +704,134 @@ public record ApiError(
 
 ---
 
-## Lab 4: Create Custom Exception Classes
+## Lab 4: Add Bean Validation and Custom Exceptions
 
-**Objective**: Create domain-specific exceptions with Lombok for clean, maintainable error handling.
+**Objective**: Add comprehensive validation to the Product entity and create domain-specific exceptions.
 
-### Step 4.1: Create ProductNotFoundException
+This lab demonstrates the **Bean Validation** framework (Jakarta Validation) and shows how to create custom exceptions for business logic errors.
+
+### Step 4.1: Add Bean Validation Annotations to Product Entity
+
+Update `src/main/java/com/kousenit/shopping/entities/Product.java` to add validation:
+
+```java
+package com.kousenit.shopping.entities;
+
+import jakarta.persistence.*;
+import jakarta.validation.constraints.*;  // Add this import
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "products", indexes = {
+    @Index(name = "idx_product_sku", columnList = "sku", unique = true),
+    @Index(name = "idx_product_name", columnList = "name")
+})
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class Product {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    // Add validation annotations
+    @NotBlank(message = "Product name is required")
+    @Size(min = 3, max = 100, message = "Product name must be between 3 and 100 characters")
+    @Column(nullable = false)
+    private String name;
+
+    @DecimalMin(value = "0.01", message = "Price must be greater than 0")
+    @DecimalMax(value = "999999.99", message = "Price must be less than 1,000,000")
+    @NotNull(message = "Price is required")
+    @Column(nullable = false, precision = 10, scale = 2)
+    private BigDecimal price;
+
+    @Size(max = 500, message = "Description cannot exceed 500 characters")
+    @Column(length = 500)
+    private String description;
+
+    @PositiveOrZero(message = "Quantity must be greater than or equal to zero")
+    @NotNull(message = "Quantity is required")
+    @Column(nullable = false)
+    private Integer quantity;
+
+    @NotBlank(message = "SKU is required")
+    @Pattern(regexp = "^[A-Z]{3}-[0-9]{6}$",
+             message = "SKU must follow the pattern: 3 uppercase letters, hyphen, 6 digits (e.g., ABC-123456)")
+    @Column(unique = true, nullable = false)
+    private String sku;
+
+    @Email(message = "Contact email must be a valid email address")
+    private String contactEmail;
+
+    @Column(name = "created_at", nullable = false, updatable = false,
+            columnDefinition = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    private LocalDateTime createdAt;
+
+    @Column(name = "updated_at",
+            columnDefinition = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    private LocalDateTime updatedAt;
+
+    @PrePersist
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
+
+    // Business methods for stock management
+    public boolean hasStock(int requestedQuantity) {
+        return this.quantity >= requestedQuantity;
+    }
+
+    public void decrementStock(int amount) {
+        if (!hasStock(amount)) {
+            throw new IllegalArgumentException(
+                String.format("Cannot decrement stock by %d. Only %d available", amount, this.quantity)
+            );
+        }
+        this.quantity -= amount;
+    }
+
+    public void incrementStock(int amount) {
+        this.quantity += amount;
+    }
+}
+```
+
+**Bean Validation Annotations Explained:**
+- `@NotBlank` - String must not be null, empty, or whitespace-only
+- `@NotNull` - Value must not be null
+- `@Size` - String/collection size constraints
+- `@DecimalMin`/`@DecimalMax` - Numeric range validation
+- `@PositiveOrZero` - Number must be >= 0
+- `@Pattern` - Regex pattern matching
+- `@Email` - Valid email format
+
+These annotations work with Spring Boot's `@Valid` annotation in controllers to automatically validate request data.
+
+**Timestamp Strategy - Best of Both Worlds:**
+
+Notice the `createdAt` and `updatedAt` fields use **two mechanisms**:
+1. **`@PrePersist`/`@PreUpdate`** - JPA lifecycle callbacks set values when saving through the application
+2. **`columnDefinition = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"`** - Database defaults for manual SQL inserts
+
+This dual approach allows:
+- ✅ Application saves through Spring Boot use JPA callbacks
+- ✅ Manual SQL inserts via H2 console get database defaults
+- ✅ No errors when experimenting with the database directly
+
+### Step 4.2: Create ProductNotFoundException
 
 Create `src/main/java/com/kousenit/shopping/exceptions/ProductNotFoundException.java`:
 
@@ -2208,6 +2331,29 @@ class ProductServiceTest {
 
 ## Testing the API
 
+### Using the H2 Console
+
+Access the H2 database console at http://localhost:8080/h2-console
+
+- **JDBC URL**: `jdbc:h2:mem:shopping`
+- **Username**: `sa`
+- **Password**: (empty)
+
+You can now manually insert products without specifying timestamps:
+
+```sql
+-- Simple insert - timestamps auto-populated by database defaults
+INSERT INTO products (name, price, description, quantity, sku, contact_email)
+VALUES ('Manual Product', 79.99, 'Added via SQL', 15, 'MAN-123456', 'manual@example.com');
+
+-- Or include timestamps explicitly if you prefer
+INSERT INTO products (name, price, description, quantity, sku, contact_email, created_at, updated_at)
+VALUES ('Manual Product 2', 89.99, 'Another SQL insert', 20, 'MAN-123457', 'manual2@example.com',
+        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+```
+
+### Using cURL
+
 ```bash
 # Get all products (paginated)
 curl http://localhost:8080/api/v1/products
@@ -2294,9 +2440,10 @@ curl -X DELETE http://localhost:8080/api/v1/products/1
 
 Congratulations! You've created a production-ready Spring Boot application with:
 
-✅ **Modern Entity Design** with validation and indexes
+✅ **Progressive Entity Design** - Basic JPA (Lab 1) → Bean Validation (Lab 4)
 ✅ **Clean Repository Layer** with custom queries
-✅ **DTO Pattern** separating API from domain
+✅ **DTO Pattern** separating API from domain with independent validation
+✅ **Custom Exceptions** for business logic errors
 ✅ **Service Layer** with proper transactions
 ✅ **RESTful API** with correct HTTP semantics
 ✅ **RFC 7807 Error Handling** with ProblemDetail
@@ -2304,4 +2451,4 @@ Congratulations! You've created a production-ready Spring Boot application with:
 ✅ **Production Configuration** with profiles
 ✅ **Comprehensive Tests** with proper isolation
 
-This application demonstrates enterprise-level patterns used in real-world production systems.
+This application demonstrates enterprise-level patterns used in real-world production systems, learned progressively from basic concepts to advanced patterns.
