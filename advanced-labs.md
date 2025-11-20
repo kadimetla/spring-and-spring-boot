@@ -10,27 +10,29 @@
 
 ## Table of Contents
 
-1. [Lab 1: Create the Product Entity (POJO)](#lab-1-create-the-product-entity-pojo)
-2. [Lab 2: Create the Repository Layer](#lab-2-create-the-repository-layer)
-3. [Lab 3: Database Initialization with CommandLineRunner](#lab-3-database-initialization-with-commandlinerunner)
-4. [Lab 4: Add Bean Validation Annotations](#lab-4-add-bean-validation-annotations)
-5. [Lab 5: Add Service Layer with @Transactional](#lab-5-add-service-layer-with-transactional)
+1. [Lab 1: Create the Product Entity](#lab-1-create-the-product-entity)
+2. [Lab 2: Create the Repository Layer with Custom Queries](#lab-2-create-the-repository-layer-with-custom-queries)
+3. [Lab 3: Create DTOs for API Boundaries](#lab-3-create-dtos-for-api-boundaries)
+4. [Lab 4: Create Custom Exception Classes](#lab-4-create-custom-exception-classes)
+5. [Lab 5: Add Service Layer with Transaction Management](#lab-5-add-service-layer-with-transaction-management)
 6. [Lab 6: Create REST Controller with Full CRUD Operations](#lab-6-create-rest-controller-with-full-crud-operations)
-7. [Lab 7: Add Global Exception Handling with @RestControllerAdvice](#lab-7-add-global-exception-handling-with-restcontrolleradvice)
+7. [Lab 7: Add Global Exception Handling with RFC 7807 ProblemDetail](#lab-7-add-global-exception-handling-with-rfc-7807-problemdetail)
+8. [Lab 8: Database Initialization with CommandLineRunner](#lab-8-database-initialization-with-commandlinerunner)
+9. [Lab 9: Configure Application with Production-Ready Settings](#lab-9-configure-application-with-production-ready-settings)
+10. [Lab 10: Write Comprehensive Tests](#lab-10-write-comprehensive-tests)
 
 ## Overview
 
-These advanced labs build upon the basic Spring Boot concepts and demonstrate enterprise-level patterns and best practices. You'll create a complete shopping application with proper layering, validation, transaction management, and exception handling.
+These advanced labs demonstrate enterprise-level Spring Boot patterns used in production applications. You'll build a complete shopping API with:
 
-The labs follow a systematic approach that mirrors real-world development:
-
-1. **Entity Design** - Start with the domain model
-2. **Data Access** - Spring Data JPA repository
-3. **Database Initialization** - CommandLineRunner for sample data
-4. **Input Validation** - Bean Validation with comprehensive testing
-5. **Service Layer** - Business logic with transaction management
-6. **REST Controllers** - Complete CRUD API with proper HTTP semantics
-7. **Exception Handling** - Global error handling with ProblemDetail
+- **Modern Entity Design** - JPA entities with validation and indexes
+- **DTO Pattern** - Separation between domain model and API contracts
+- **Clean Service Layer** - Business logic without interface bloat
+- **RESTful API Design** - Proper HTTP semantics and status codes
+- **RFC 7807 Error Handling** - Standardized error responses with ProblemDetail
+- **Transaction Management** - Proper use of @Transactional
+- **Test Isolation** - Modern testing patterns with @DirtiesContext
+- **Production Configuration** - Comprehensive application.yml with profiles
 
 ## Project Setup
 
@@ -46,18 +48,42 @@ shopping/
 │   │   │           └── shopping/
 │   │   │               ├── ShoppingApplication.java
 │   │   │               ├── config/
+│   │   │               │   └── AppConfig.java
 │   │   │               ├── controllers/
+│   │   │               │   ├── ProductRestController.java
+│   │   │               │   └── GlobalExceptionHandler.java
+│   │   │               ├── dto/
+│   │   │               │   ├── ProductRequest.java
+│   │   │               │   ├── ProductResponse.java
+│   │   │               │   ├── StockUpdateRequest.java
+│   │   │               │   ├── ApiError.java
+│   │   │               │   └── ValidationError.java
 │   │   │               ├── entities/
+│   │   │               │   └── Product.java
+│   │   │               ├── exceptions/
+│   │   │               │   ├── ProductNotFoundException.java
+│   │   │               │   ├── InsufficientStockException.java
+│   │   │               │   └── ProductValidationException.java
 │   │   │               ├── repositories/
+│   │   │               │   └── ProductRepository.java
 │   │   │               └── services/
+│   │   │                   └── ProductService.java
 │   │   └── resources/
-│   │       ├── application.yml
-│   │       └── data.sql (optional)
+│   │       └── application.yml
 │   └── test/
 │       └── java/
 │           └── com/
 │               └── kousenit/
 │                   └── shopping/
+│                       ├── ShoppingApplicationIntegrationTest.java
+│                       ├── controllers/
+│                       │   └── ProductRestControllerTest.java
+│                       ├── entities/
+│                       │   └── ProductTest.java
+│                       ├── repositories/
+│                       │   └── ProductRepositoryTest.java
+│                       └── services/
+│                           └── ProductServiceTest.java
 └── build.gradle
 ```
 
@@ -74,7 +100,6 @@ group = 'com.kousenit'
 version = '0.0.1-SNAPSHOT'
 
 // Java toolchain is inherited from root build.gradle (Java 21)
-// No need to specify sourceCompatibility here
 
 configurations {
     compileOnly {
@@ -97,9 +122,7 @@ dependencies {
     runtimeOnly 'com.h2database:h2'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
-    testImplementation 'org.testcontainers:junit-jupiter'
-    testImplementation 'org.testcontainers:postgresql'  // PostgreSQL for more realistic testing
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 tasks.named('test') {
@@ -108,731 +131,17 @@ tasks.named('test') {
 ```
 
 > [!NOTE]
-> The root `build.gradle` configures Java 21 for all subprojects via the toolchain mechanism. Individual projects don't need to specify `sourceCompatibility`.
-
-### Initial application.yml
-
-Create `src/main/resources/application.yml` with basic configuration that we'll expand in later labs:
-
-```yaml
-spring:
-  application:
-    name: shopping
-  
-  datasource:
-    url: jdbc:h2:mem:shopping
-    driver-class-name: org.h2.Driver
-    username: sa
-    password: 
-  
-  h2:
-    console:
-      enabled: true
-      path: /h2-console
-  
-  jpa:
-    hibernate:
-      ddl-auto: create-drop
-    show-sql: true
-    database-platform: org.hibernate.dialect.H2Dialect
-
-server:
-  port: 8080
-```
-
-## Lab 1: Create the Product Entity (POJO)
-
-**Objective**: Create a Product entity class that will serve as our domain model. This lab shows the basic structure, but note that the actual solution includes validation annotations that we'll formally introduce in Lab 4.
-
-> [!NOTE]
-> **Learning Approach**: This lab shows a simplified starting point. The actual `Product.java` in the solution already includes:
-> - Validation annotations from Lab 4 (`@NotBlank`, `@Size`, `@Email`, `@Pattern`)
-> - Database indexes for performance
-> - Complete business logic methods
->
-> This is intentional - it shows you the **final production-ready state** while the labs teach you **how to build it progressively**.
-
-**Why POJO and not Record**: We're using JPA, which requires mutable objects with default constructors and setters. Records are immutable and better suited for DTOs or value objects.
-
-**Using Lombok**: We'll use Lombok annotations to reduce boilerplate code while maintaining readability and focusing on the business logic.
-
-**⚠️ IDE Setup Required**: Lombok requires an IDE plugin to work properly:
-- **IntelliJ IDEA**: File → Settings → Plugins → Search "Lombok" → Install
-- **VS Code**: Install "Lombok Annotations Support for VS Code" extension
-- **Eclipse**: Download lombok.jar and run `java -jar lombok.jar` to install
-
-### Step 1.1: Create the Basic Product Class
-
-Create `src/main/java/com/kousenit/shopping/entities/Product.java`:
-
-**Simplified version for learning** (we'll add validation in Lab 4):
-
-```java
-package com.kousenit.shopping.entities;
-
-import jakarta.persistence.*;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-
-@Entity
-@Table(name = "products")
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
-public class Product {
-    
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-    
-    @Column(nullable = false)
-    private String name;
-    
-    @Column(nullable = false, precision = 10, scale = 2)
-    private BigDecimal price;
-    
-    // Additional fields to be enhanced with validation in Lab 4
-    private String description;
-    private Integer quantity;
-    private String sku;
-    private String contactEmail;
-    
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-    
-    @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
-    
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-    }
-    
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
-    
-    // Business methods for stock management
-    public boolean hasStock(int requestedQuantity) {
-        return this.quantity != null && this.quantity >= requestedQuantity;
-    }
-    
-    public void decrementStock(int amount) {
-        if (!hasStock(amount)) {
-            throw new IllegalArgumentException(
-                String.format("Cannot decrement stock by %d. Only %d available", amount, this.quantity)
-            );
-        }
-        this.quantity -= amount;
-    }
-    
-    public void incrementStock(int amount) {
-        if (this.quantity == null) {
-            this.quantity = amount;
-        } else {
-            this.quantity += amount;
-        }
-    }
-}
-```
-
-> [!TIP]
-> **Want to see the production-ready version?** The actual `Product.java` in the codebase includes:
-> - `@Table` with indexes: `@Index(name = "idx_product_sku", columnList = "sku", unique = true)`
-> - Validation annotations: `@NotBlank`, `@Size(min=3, max=100)`, `@Email`, `@Pattern(regexp="^[A-Z]{3}-[0-9]{6}$")`
-> - Enhanced `decrementStock()` and `incrementStock()` methods
-> - All fields properly annotated for production use
->
-> We'll add these enhancements step-by-step in Labs 2-4, but you can reference the solution code at any time!
-
-### Step 1.2: Create a Basic Test
-
-Create `src/test/java/com/kousenit/shopping/entities/ProductTest.java`:
-
-```java
-package com.kousenit.shopping.entities;
-
-import org.junit.jupiter.api.Test;
-import java.math.BigDecimal;
-
-import static org.junit.jupiter.api.Assertions.*;
-
-class ProductTest {
-    
-    @Test
-    void testProductCreation() {
-        Product product = new Product("Laptop", new BigDecimal("999.99"));
-        
-        assertNull(product.getId()); // ID not set until persisted
-        assertEquals("Laptop", product.getName());
-        assertEquals(new BigDecimal("999.99"), product.getPrice());
-    }
-    
-    @Test
-    void testProductEquality() {
-        Product product1 = new Product(1L, "Laptop", new BigDecimal("999.99"));
-        Product product2 = new Product(1L, "Laptop", new BigDecimal("999.99"));
-        Product product3 = new Product(2L, "Mouse", new BigDecimal("29.99"));
-        
-        assertEquals(product1, product2);
-        assertNotEquals(product1, product3);
-    }
-    
-    @Test
-    void testProductToString() {
-        Product product = new Product(1L, "Laptop", new BigDecimal("999.99"));
-        String result = product.toString();
-        
-        assertTrue(result.contains("Laptop"));
-        assertTrue(result.contains("999.99"));
-        assertTrue(result.contains("id=1"));
-    }
-}
-```
-
-### Step 1.3: Run and Verify
-
-```bash
-cd shopping
-./gradlew test --tests ProductTest
-```
-
-**Key Learning Points:**
-- **JPA Entity Annotations**: `@Entity`, `@Table`, `@Id`, `@GeneratedValue`, `@Column`
-- **Why POJOs**: Mutable state required for JPA persistence
-- **BigDecimal for Money**: Avoid floating-point precision issues
-- **Proper equals/hashCode**: Essential for collections and JPA
-
-[Back to Table of Contents](#table-of-contents)
-
-## Lab 2: Create the Repository Layer
-
-**Objective**: Implement the data access layer using Spring Data JPA.
-
-### Step 2.1: Create the ProductRepository Interface
-
-Create `src/main/java/com/kousenit/shopping/repositories/ProductRepository.java`:
-
-```java
-package com.kousenit.shopping.repositories;
-
-import com.kousenit.shopping.entities.Product;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
-
-import java.math.BigDecimal;
-import java.util.List;
-import java.util.Optional;
-
-@Repository
-public interface ProductRepository extends JpaRepository<Product, Long> {
-    
-    // Derived query methods (Spring Data JPA generates implementation)
-    List<Product> findByNameContainingIgnoreCase(String name);
-    
-    List<Product> findByPriceBetween(BigDecimal minPrice, BigDecimal maxPrice);
-    
-    Optional<Product> findByNameIgnoreCase(String name);
-    
-    List<Product> findByPriceLessThan(BigDecimal price);
-    
-    List<Product> findByPriceGreaterThan(BigDecimal price);
-    
-    // Custom query using JPQL
-    @Query("SELECT p FROM Product p WHERE p.price < :maxPrice ORDER BY p.price DESC")
-    List<Product> findProductsUnderPrice(@Param("maxPrice") BigDecimal maxPrice);
-    
-    // Native SQL query example
-    @Query(value = "SELECT * FROM products WHERE price = (SELECT MAX(price) FROM products)", 
-           nativeQuery = true)
-    Optional<Product> findMostExpensiveProduct();
-    
-    // Count queries
-    long countByPriceGreaterThan(BigDecimal price);
-    
-    // Check existence
-    boolean existsByNameIgnoreCase(String name);
-}
-```
-
-### Step 2.2: Create Repository Integration Tests
-
-Create `src/test/java/com/kousenit/shopping/repositories/ProductRepositoryTest.java`:
-
-```java
-package com.kousenit.shopping.repositories;
-
-import com.kousenit.shopping.entities.Product;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
-
-import java.math.BigDecimal;
-import java.util.List;
-import java.util.Optional;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
-@DataJpaTest
-class ProductRepositoryTest {
-    
-    @Autowired
-    private TestEntityManager entityManager;
-    
-    @Autowired
-    private ProductRepository productRepository;
-    
-    private Product laptop;
-    private Product mouse;
-    private Product keyboard;
-    
-    @BeforeEach
-    void setUp() {
-        laptop = new Product("Gaming Laptop", new BigDecimal("1299.99"));
-        mouse = new Product("Wireless Mouse", new BigDecimal("29.99"));
-        keyboard = new Product("Mechanical Keyboard", new BigDecimal("89.99"));
-        
-        entityManager.persist(laptop);
-        entityManager.persist(mouse);
-        entityManager.persist(keyboard);
-        entityManager.flush();
-    }
-    
-    @Test
-    void testFindAll() {
-        List<Product> products = productRepository.findAll();
-        assertThat(products).hasSize(3);
-    }
-    
-    @Test
-    void testFindByNameContainingIgnoreCase() {
-        List<Product> products = productRepository.findByNameContainingIgnoreCase("mouse");
-        
-        assertThat(products).hasSize(1);
-        assertThat(products.get(0).getName()).isEqualTo("Wireless Mouse");
-    }
-    
-    @Test
-    void testFindByPriceBetween() {
-        List<Product> products = productRepository.findByPriceBetween(
-            new BigDecimal("50.00"), 
-            new BigDecimal("100.00")
-        );
-        
-        assertThat(products).hasSize(1);
-        assertThat(products.get(0).getName()).isEqualTo("Mechanical Keyboard");
-    }
-    
-    @Test
-    void testFindByNameIgnoreCase() {
-        Optional<Product> product = productRepository.findByNameIgnoreCase("GAMING LAPTOP");
-        
-        assertThat(product).isPresent();
-        assertThat(product.get().getPrice()).isEqualTo(new BigDecimal("1299.99"));
-    }
-    
-    @Test
-    void testCustomQueryFindProductsUnderPrice() {
-        List<Product> products = productRepository.findProductsUnderPrice(new BigDecimal("100.00"));
-        
-        assertThat(products).hasSize(2);
-        // Results should be ordered by price DESC
-        assertThat(products.get(0).getPrice()).isGreaterThan(products.get(1).getPrice());
-    }
-    
-    @Test
-    void testFindMostExpensiveProduct() {
-        Optional<Product> product = productRepository.findMostExpensiveProduct();
-        
-        assertThat(product).isPresent();
-        assertThat(product.get().getName()).isEqualTo("Gaming Laptop");
-    }
-    
-    @Test
-    void testCountByPriceGreaterThan() {
-        long count = productRepository.countByPriceGreaterThan(new BigDecimal("50.00"));
-        
-        assertThat(count).isEqualTo(2);
-    }
-    
-    @Test
-    void testExistsByNameIgnoreCase() {
-        boolean exists = productRepository.existsByNameIgnoreCase("wireless mouse");
-        
-        assertThat(exists).isTrue();
-    }
-    
-    @Test
-    void testExistsByNameIgnoreCaseNotFound() {
-        boolean exists = productRepository.existsByNameIgnoreCase("Tablet");
-        
-        assertThat(exists).isFalse();
-    }
-    
-    @Test
-    void testSaveAndFindById() {
-        Product tablet = new Product("iPad Pro", new BigDecimal("799.99"));
-        Product saved = productRepository.save(tablet);
-        
-        assertThat(saved.getId()).isNotNull();
-        
-        Optional<Product> found = productRepository.findById(saved.getId());
-        assertThat(found).isPresent();
-        assertThat(found.get().getName()).isEqualTo("iPad Pro");
-    }
-    
-    @Test
-    void testDeleteById() {
-        Long laptopId = laptop.getId();
-        productRepository.deleteById(laptopId);
-        
-        Optional<Product> found = productRepository.findById(laptopId);
-        assertThat(found).isEmpty();
-    }
-}
-```
-
-### Step 2.3: Run Repository Tests
-
-```bash
-./gradlew test --tests ProductRepositoryTest
-```
-
-**Key Learning Points:**
-- **Spring Data JPA Magic**: Method name conventions auto-generate queries
-- **@DataJpaTest**: Loads only JPA-related components for faster testing
-- **TestEntityManager**: Provides test-specific persistence operations
-- **Custom Queries**: JPQL vs Native SQL approaches
-- **Repository Testing Patterns**: Setup, execution, and assertion patterns
-
-[Back to Table of Contents](#table-of-contents)
-
-## Lab 3: Database Initialization with CommandLineRunner
-
-**Objective**: Populate the database with sample data on application startup using Spring Boot's CommandLineRunner.
-
-### Step 3.1: Create the AppConfig Class
-
-Create `src/main/java/com/kousenit/shopping/config/AppConfig.java`:
-
-```java
-package com.kousenit.shopping.config;
-
-import com.kousenit.shopping.entities.Product;
-import com.kousenit.shopping.repositories.ProductRepository;
-import org.springframework.boot.CommandLineRunner;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
-
-import java.math.BigDecimal;
-import java.util.List;
-
-@Configuration
-public class AppConfig {
-    
-    @Bean
-    @Profile("!test") // Don't run during tests
-    public CommandLineRunner initializeDatabase(ProductRepository productRepository) {
-        return args -> {
-            // Only initialize if database is empty
-            if (productRepository.count() == 0) {
-                List<Product> initialProducts = List.of(
-                    new Product("MacBook Pro 16\"", new BigDecimal("2499.99")),
-                    new Product("iPad Air", new BigDecimal("599.99")),
-                    new Product("iPhone 15 Pro", new BigDecimal("999.99")),
-                    new Product("AirPods Pro", new BigDecimal("249.99")),
-                    new Product("Magic Mouse", new BigDecimal("79.99")),
-                    new Product("Magic Keyboard", new BigDecimal("179.99")),
-                    new Product("Apple Watch Series 9", new BigDecimal("399.99")),
-                    new Product("Studio Display", new BigDecimal("1599.99")),
-                    new Product("Mac Studio", new BigDecimal("1999.99")),
-                    new Product("HomePod mini", new BigDecimal("99.99"))
-                );
-                
-                productRepository.saveAll(initialProducts);
-                System.out.println("Initialized database with " + initialProducts.size() + " products");
-                
-                // Print some statistics
-                long totalProducts = productRepository.count();
-                System.out.println("Total products in database: " + totalProducts);
-                
-                productRepository.findMostExpensiveProduct()
-                    .ifPresent(product -> 
-                        System.out.println("Most expensive product: " + product.getName() + 
-                                         " - $" + product.getPrice()));
-            } else {
-                System.out.println("Database already contains " + productRepository.count() + " products");
-            }
-        };
-    }
-    
-    @Bean
-    @Profile("demo")
-    public CommandLineRunner demonstrateQueries(ProductRepository productRepository) {
-        return args -> {
-            System.out.println("\n=== Product Query Demonstrations ===");
-            
-            // Find products under $200
-            System.out.println("\nProducts under $200:");
-            productRepository.findProductsUnderPrice(new BigDecimal("200.00"))
-                .forEach(product -> System.out.println("  " + product.getName() + " - $" + product.getPrice()));
-            
-            // Find products containing "Pro"
-            System.out.println("\nProducts containing 'Pro':");
-            productRepository.findByNameContainingIgnoreCase("Pro")
-                .forEach(product -> System.out.println("  " + product.getName()));
-            
-            // Count expensive products (> $500)
-            long expensiveCount = productRepository.countByPriceGreaterThan(new BigDecimal("500.00"));
-            System.out.println("\nNumber of products over $500: " + expensiveCount);
-            
-            // Find products in price range
-            System.out.println("\nProducts between $100 and $300:");
-            productRepository.findByPriceBetween(new BigDecimal("100.00"), new BigDecimal("300.00"))
-                .forEach(product -> System.out.println("  " + product.getName() + " - $" + product.getPrice()));
-        };
-    }
-}
-```
-
-### Step 3.2: Create Configuration Tests
-
-Create `src/test/java/com/kousenit/shopping/config/AppConfigTest.java`:
-
-```java
-package com.kousenit.shopping.config;
-
-import com.kousenit.shopping.repositories.ProductRepository;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
-@SpringBootTest
-@ActiveProfiles("test") // This prevents CommandLineRunner from executing
-class AppConfigTest {
-    
-    @Autowired
-    private ProductRepository productRepository;
-    
-    @Test
-    void testDatabaseInitializationIsSkippedInTestProfile() {
-        // With @Profile("!test") on CommandLineRunner, database should be empty
-        long count = productRepository.count();
-        assertThat(count).isEqualTo(0);
-    }
-}
-```
-
-### Step 3.3: Test Manual Database Initialization
-
-Create `src/test/java/com/kousenit/shopping/config/DatabaseInitializationTest.java`:
-
-```java
-package com.kousenit.shopping.config;
-
-import com.kousenit.shopping.entities.Product;
-import com.kousenit.shopping.repositories.ProductRepository;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.ActiveProfiles;
-
-import java.math.BigDecimal;
-import java.util.List;
-
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.Mockito.*;
-
-@SpringBootTest
-@ActiveProfiles("integration") // Different profile to test initialization
-class DatabaseInitializationTest {
-    
-    @MockitoBean
-    private ProductRepository productRepository;
-    
-    @Autowired
-    private AppConfig appConfig;
-    
-    @Test
-    void testCommandLineRunnerInitializesEmptyDatabase() throws Exception {
-        // Given: Empty database
-        when(productRepository.count()).thenReturn(0L);
-        
-        // When: CommandLineRunner executes
-        appConfig.initializeDatabase(productRepository).run();
-        
-        // Then: Products are saved
-        verify(productRepository).count();
-        verify(productRepository).saveAll(anyList());
-        verify(productRepository).findMostExpensiveProduct();
-    }
-    
-    @Test
-    void testCommandLineRunnerSkipsNonEmptyDatabase() throws Exception {
-        // Given: Database with existing data
-        when(productRepository.count()).thenReturn(5L);
-        
-        // When: CommandLineRunner executes
-        appConfig.initializeDatabase(productRepository).run();
-        
-        // Then: No products are saved
-        verify(productRepository).count();
-        verify(productRepository, never()).saveAll(anyList());
-    }
-}
-```
-
-### Step 3.4: Create Integration Test
-
-Create `src/test/java/com/kousenit/shopping/ShoppingApplicationTest.java`:
-
-```java
-package com.kousenit.shopping;
-
-import com.kousenit.shopping.repositories.ProductRepository;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
-@SpringBootTest
-@ActiveProfiles("integration")
-class ShoppingApplicationTest {
-    
-    @Autowired
-    private ProductRepository productRepository;
-    
-    @Test
-    void contextLoads() {
-        // Verify the application context loads successfully
-        assertThat(productRepository).isNotNull();
-    }
-    
-    @Test
-    void testDatabaseIsInitialized() {
-        // When running with default profile, database should be initialized
-        long count = productRepository.count();
-        assertThat(count).isGreaterThan(0);
-        
-        // Verify some expected products exist
-        boolean hasAppleProducts = productRepository.findByNameContainingIgnoreCase("Apple").size() > 0;
-        boolean hasMacProducts = productRepository.findByNameContainingIgnoreCase("Mac").size() > 0;
-        
-        assertThat(hasAppleProducts || hasMacProducts).isTrue();
-    }
-}
-```
-
-### Step 3.5: Run the Application
-
-```bash
-# Run with default profile (initializes database)
-./gradlew bootRun
-
-# Run with demo profile (shows query demonstrations)
-./gradlew bootRun --args='--spring.profiles.active=demo'
-
-# Check H2 Console
-# URL: http://localhost:8080/h2-console
-# JDBC URL: jdbc:h2:mem:shopping
-# Username: sa
-# Password: (empty)
-```
-
-### Step 3.6: Run Tests
-
-```bash
-# Run all tests
-./gradlew test
-
-# Run specific test classes
-./gradlew test --tests AppConfigTest
-./gradlew test --tests DatabaseInitializationTest
-./gradlew test --tests ShoppingApplicationTest
-```
-
-### Step 3.4: Update application.yml with Test Profile Configuration
-
-Update `src/main/resources/application.yml` to add test profile configuration using YAML's `---` separator:
-
-```yaml
-spring:
-  application:
-    name: shopping
-  
-  datasource:
-    url: jdbc:h2:mem:shopping
-    driver-class-name: org.h2.Driver
-    username: sa
-    password: 
-  
-  h2:
-    console:
-      enabled: true
-      path: /h2-console
-  
-  jpa:
-    hibernate:
-      ddl-auto: create-drop
-    show-sql: true
-    database-platform: org.hibernate.dialect.H2Dialect
-
-server:
-  port: 8080
+> The root `build.gradle` configures Java 21 for all subprojects via the toolchain mechanism.
 
 ---
-# Test profile configuration
-spring:
-  config:
-    activate:
-      on-profile: test
-  datasource:
-    url: jdbc:h2:mem:testdb
-  jpa:
-    show-sql: false
-```
 
-**Why YAML Profile Separation:**
-- **Single File**: All profiles in one `application.yml` file
-- **`---` Separator**: Clearly separates different profile configurations
-- **Test Isolation**: Separate database and reduced logging for tests
-- **Maintainability**: Easier to manage than multiple property files
+## Lab 1: Create the Product Entity
 
-**Key Learning Points:**
-- **CommandLineRunner**: Execute code after Spring Boot application startup
-- **@Profile Annotations**: Control bean creation based on active profiles
-- **Conditional Initialization**: Check database state before populating
-- **Separation of Concerns**: Configuration logic separate from business logic
-- **Test Profiles**: Prevent side effects during testing
-- **YAML Profiles**: Use `---` separator for profile-specific configuration
-- **Integration Testing**: Test actual application behavior with real dependencies
+**Objective**: Create a production-ready JPA entity with validation, indexes, and business logic methods.
 
-[Back to Table of Contents](#table-of-contents)
+### Step 1.1: Create the Product Entity
 
-## Lab 4: Add Bean Validation Annotations
-
-**Objective**: Add comprehensive validation to the Product entity and test validation behavior at multiple layers.
-
-### Step 4.1: Enhanced Product Entity with Validation and Indexes
-
-Update `src/main/java/com/kousenit/shopping/entities/Product.java` to match our final implementation:
+Create `src/main/java/com/kousenit/shopping/entities/Product.java`:
 
 ```java
 package com.kousenit.shopping.entities;
@@ -855,62 +164,62 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class Product {
-    
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    
+
     @NotBlank(message = "Product name is required")
     @Size(min = 3, max = 100, message = "Product name must be between 3 and 100 characters")
     @Column(nullable = false)
     private String name;
-    
+
     @DecimalMin(value = "0.01", message = "Price must be greater than 0")
     @DecimalMax(value = "999999.99", message = "Price must be less than 1,000,000")
     @NotNull(message = "Price is required")
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal price;
-    
+
     @Size(max = 500, message = "Description cannot exceed 500 characters")
     @Column(length = 500)
     private String description;
-    
+
     @PositiveOrZero(message = "Quantity must be greater than or equal to zero")
     @NotNull(message = "Quantity is required")
     @Column(nullable = false)
     private Integer quantity;
-    
+
     @NotBlank(message = "SKU is required")
-    @Pattern(regexp = "^[A-Z]{3}-[0-9]{6}$", 
+    @Pattern(regexp = "^[A-Z]{3}-[0-9]{6}$",
              message = "SKU must follow the pattern: 3 uppercase letters, hyphen, 6 digits (e.g., ABC-123456)")
     @Column(unique = true, nullable = false)
     private String sku;
-    
+
     @Email(message = "Contact email must be a valid email address")
     private String contactEmail;
-    
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
-    
+
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
-    
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
     }
-    
+
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
     }
-    
+
     // Business methods for stock management
     public boolean hasStock(int requestedQuantity) {
         return this.quantity >= requestedQuantity;
     }
-    
+
     public void decrementStock(int amount) {
         if (!hasStock(amount)) {
             throw new IllegalArgumentException(
@@ -919,525 +228,314 @@ public class Product {
         }
         this.quantity -= amount;
     }
-    
+
     public void incrementStock(int amount) {
         this.quantity += amount;
     }
 }
 ```
 
-### Step 4.2: Bean Validation Unit Tests
+**Key Features:**
+- **Database Indexes** - Optimized queries for SKU (unique) and name lookups
+- **Bean Validation** - Comprehensive validation annotations
+- **Audit Fields** - Automatic timestamps with @PrePersist and @PreUpdate
+- **Business Logic** - Stock management methods in the entity
+- **Lombok** - Clean code with @Data (generates getters, setters, equals, hashCode, toString)
 
-Create `src/test/java/com/kousenit/shopping/entities/ProductValidationTest.java`:
+### Step 1.2: Create Basic Entity Tests
+
+Create `src/test/java/com/kousenit/shopping/entities/ProductTest.java`:
 
 ```java
 package com.kousenit.shopping.entities;
 
-import jakarta.validation.ConstraintViolation;
-import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
-
-import java.math.BigDecimal;
-import java.util.Set;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
-@SpringBootTest
-@ActiveProfiles("test")
-class ProductValidationTest {
-    
-    @Autowired
-    private Validator validator;
-    
-    @Test
-    void testValidProduct() {
-        Product product = new Product();
-        product.setName("MacBook Pro");
-        product.setPrice(new BigDecimal("2499.99"));
-        product.setDescription("High-performance laptop");
-        product.setQuantity(5);
-        product.setSku("MAC-123456");
-        product.setContactEmail("sales@apple.com");
-        
-        Set<ConstraintViolation<Product>> violations = validator.validate(product);
-        
-        assertThat(violations).isEmpty();
-    }
-    
-    @Test
-    void testBlankNameValidation() {
-        Product product = new Product("", new BigDecimal("100.00"));
-        
-        Set<ConstraintViolation<Product>> violations = validator.validate(product);
-        
-        assertThat(violations).hasSize(2); // Both @NotBlank and @Size are triggered
-        assertThat(violations)
-            .extracting(ConstraintViolation::getMessage)
-            .containsExactlyInAnyOrder(
-                "Product name is required",
-                "Product name must be between 3 and 100 characters"
-            );
-    }
-    
-    @Test
-    void testNameTooShort() {
-        Product product = new Product("A", new BigDecimal("100.00"));
-        
-        Set<ConstraintViolation<Product>> violations = validator.validate(product);
-        
-        assertThat(violations).hasSize(1);
-        assertThat(violations.iterator().next().getMessage())
-            .isEqualTo("Product name must be between 3 and 100 characters");
-    }
-    
-    @Test
-    void testNameTooLong() {
-        String longName = "A".repeat(101);
-        Product product = new Product(longName, new BigDecimal("100.00"));
-        
-        Set<ConstraintViolation<Product>> violations = validator.validate(product);
-        
-        assertThat(violations).hasSize(1);
-        assertThat(violations.iterator().next().getMessage())
-            .isEqualTo("Product name must be between 3 and 100 characters");
-    }
-    
-    @Test
-    void testNullPriceValidation() {
-        Product product = new Product();
-        product.setName("Test Product");
-        product.setPrice(null);
-        
-        Set<ConstraintViolation<Product>> violations = validator.validate(product);
-        
-        assertThat(violations).hasSize(1);
-        assertThat(violations.iterator().next().getMessage())
-            .isEqualTo("Price cannot be null");
-    }
-    
-    @Test
-    void testPriceTooLow() {
-        Product product = new Product("Test Product", new BigDecimal("0.00"));
-        
-        Set<ConstraintViolation<Product>> violations = validator.validate(product);
-        
-        assertThat(violations).hasSize(1);
-        assertThat(violations.iterator().next().getMessage())
-            .isEqualTo("Price must be at least $0.01");
-    }
-    
-    @Test
-    void testPriceTooHigh() {
-        Product product = new Product("Test Product", new BigDecimal("100000.00"));
-        
-        Set<ConstraintViolation<Product>> violations = validator.validate(product);
-        
-        assertThat(violations).hasSize(1);
-        assertThat(violations.iterator().next().getMessage())
-            .isEqualTo("Price cannot exceed $99,999.99");
-    }
-    
-    @Test
-    void testInvalidPricePrecision() {
-        Product product = new Product("Test Product", new BigDecimal("100.123"));
-        
-        Set<ConstraintViolation<Product>> violations = validator.validate(product);
-        
-        assertThat(violations).hasSize(1);
-        assertThat(violations.iterator().next().getMessage())
-            .isEqualTo("Price must be a valid monetary amount");
-    }
-    
-    @Test
-    void testNegativeQuantity() {
-        Product product = new Product();
-        product.setName("Test Product");
-        product.setPrice(new BigDecimal("100.00"));
-        product.setQuantity(-1);
-        
-        Set<ConstraintViolation<Product>> violations = validator.validate(product);
-        
-        assertThat(violations).hasSize(1);
-        assertThat(violations.iterator().next().getMessage())
-            .isEqualTo("Quantity must be greater than or equal to zero");
-    }
-    
-    @Test
-    void testQuantityTooHigh() {
-        Product product = new Product();
-        product.setName("Test Product");
-        product.setPrice(new BigDecimal("100.00"));
-        product.setQuantity(10001);
-        
-        Set<ConstraintViolation<Product>> violations = validator.validate(product);
-        
-        assertThat(violations).hasSize(1);
-        assertThat(violations.iterator().next().getMessage())
-            .isEqualTo("Quantity cannot exceed 10,000");
-    }
-    
-    @ParameterizedTest
-    @ValueSource(strings = {"INVALID", "AB123", "AB-12", "AB-1234567", "ab-123456"})
-    void testInvalidSkuFormats(String invalidSku) {
-        Product product = new Product();
-        product.setName("Test Product");
-        product.setPrice(new BigDecimal("100.00"));
-        product.setSku(invalidSku);
-        
-        Set<ConstraintViolation<Product>> violations = validator.validate(product);
-        
-        assertThat(violations).hasSize(1);
-        assertThat(violations.iterator().next().getMessage())
-            .isEqualTo("SKU must follow format: XX-123456 (2-3 letters, dash, 3-6 digits)");
-    }
-    
-    @ParameterizedTest
-    @ValueSource(strings = {"AB-123", "ABC-123456", "XY-999999"})
-    void testValidSkuFormats(String validSku) {
-        Product product = new Product();
-        product.setName("Test Product");
-        product.setPrice(new BigDecimal("100.00"));
-        product.setSku(validSku);
-        
-        Set<ConstraintViolation<Product>> violations = validator.validate(product);
-        
-        assertThat(violations).isEmpty();
-    }
-    
-    @Test
-    void testInvalidEmail() {
-        Product product = new Product();
-        product.setName("Test Product");
-        product.setPrice(new BigDecimal("100.00"));
-        product.setContactEmail("invalid-email");
-        
-        Set<ConstraintViolation<Product>> violations = validator.validate(product);
-        
-        assertThat(violations).hasSize(1);
-        assertThat(violations.iterator().next().getMessage())
-            .isEqualTo("Contact email must be valid");
-    }
-    
-    @Test
-    void testDescriptionTooLong() {
-        Product product = new Product();
-        product.setName("Test Product");
-        product.setPrice(new BigDecimal("100.00"));
-        product.setDescription("A".repeat(501));
-        
-        Set<ConstraintViolation<Product>> violations = validator.validate(product);
-        
-        assertThat(violations).hasSize(1);
-        assertThat(violations.iterator().next().getMessage())
-            .isEqualTo("Description cannot exceed 500 characters");
-    }
-    
-    @Test
-    void testMultipleValidationErrors() {
-        Product product = new Product();
-        product.setName(""); // Blank name
-        product.setPrice(new BigDecimal("0.00")); // Too low price
-        product.setQuantity(-5); // Negative quantity
-        product.setSku("INVALID"); // Invalid SKU format
-        product.setContactEmail("not-an-email"); // Invalid email
-        
-        Set<ConstraintViolation<Product>> violations = validator.validate(product);
-        
-        assertThat(violations).hasSize(5);
-        
-        // Verify we have violations for all expected fields
-        Set<String> violatedProperties = violations.stream()
-            .map(violation -> violation.getPropertyPath().toString())
-            .collect(java.util.stream.Collectors.toSet());
-        
-        assertThat(violatedProperties).containsExactlyInAnyOrder(
-            "name", "price", "quantity", "sku", "contactEmail"
-        );
-    }
-}
-```
-
-### Step 4.3: Repository Validation Integration Tests
-
-Create `src/test/java/com/kousenit/shopping/repositories/ProductRepositoryValidationTest.java`:
-
-```java
-package com.kousenit.shopping.repositories;
-
-import com.kousenit.shopping.entities.Product;
-import jakarta.validation.ConstraintViolationException;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.dao.DataIntegrityViolationException;
-
 import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@DataJpaTest
-class ProductRepositoryValidationTest {
-    
-    @Autowired
-    private ProductRepository productRepository;
-    
+class ProductTest {
+
     @Test
-    void testSaveValidProduct() {
+    void testHasStockReturnsTrue() {
         Product product = new Product();
-        product.setName("Valid Product");
-        product.setPrice(new BigDecimal("99.99"));
-        product.setDescription("A valid product description");
         product.setQuantity(10);
-        product.setSku("VP-123456");
-        product.setContactEmail("test@example.com");
-        
-        Product saved = productRepository.save(product);
-        
-        assertThat(saved.getId()).isNotNull();
-        assertThat(saved.getName()).isEqualTo("Valid Product");
+
+        assertThat(product.hasStock(5)).isTrue();
     }
-    
+
     @Test
-    void testSaveProductWithNullName() {
+    void testHasStockReturnsFalse() {
         Product product = new Product();
-        product.setName(null);
-        product.setPrice(new BigDecimal("99.99"));
-        
-        // JPA will throw constraint violation for @NotBlank
-        assertThatThrownBy(() -> {
-            productRepository.save(product);
-            productRepository.flush(); // Force immediate validation
-        }).isInstanceOf(ConstraintViolationException.class);
+        product.setQuantity(3);
+
+        assertThat(product.hasStock(5)).isFalse();
     }
-    
+
     @Test
-    void testSaveProductWithDuplicateSku() {
-        // Save first product
-        Product product1 = new Product();
-        product1.setName("Product 1");
-        product1.setPrice(new BigDecimal("99.99"));
-        product1.setSku("UNIQUE-123");
-        productRepository.save(product1);
-        
-        // Try to save second product with same SKU
-        Product product2 = new Product();
-        product2.setName("Product 2");
-        product2.setPrice(new BigDecimal("199.99"));
-        product2.setSku("UNIQUE-123"); // Duplicate SKU
-        
-        assertThatThrownBy(() -> {
-            productRepository.save(product2);
-            productRepository.flush();
-        }).isInstanceOf(DataIntegrityViolationException.class);
-    }
-    
-    @Test
-    void testUpdateProductWithValidData() {
-        // Save initial product
+    void testDecrementStockSuccess() {
         Product product = new Product();
-        product.setName("Original Name");
-        product.setPrice(new BigDecimal("99.99"));
-        product.setSku("ORG-123456");
-        Product saved = productRepository.save(product);
-        
-        // Update with valid data
-        saved.setName("Updated Name");
-        saved.setPrice(new BigDecimal("149.99"));
-        saved.setDescription("Updated description");
-        
-        Product updated = productRepository.save(saved);
-        
-        assertThat(updated.getName()).isEqualTo("Updated Name");
-        assertThat(updated.getPrice()).isEqualTo(new BigDecimal("149.99"));
-        assertThat(updated.getDescription()).isEqualTo("Updated description");
+        product.setQuantity(10);
+
+        product.decrementStock(3);
+
+        assertThat(product.getQuantity()).isEqualTo(7);
     }
-    
+
     @Test
-    void testFindProductsWithValidationConstraints() {
-        // Save products with different price ranges to test our custom queries
-        Product cheapProduct = new Product();
-        cheapProduct.setName("Cheap Product");
-        cheapProduct.setPrice(new BigDecimal("9.99"));
-        cheapProduct.setSku("CP-123456");
-        
-        Product expensiveProduct = new Product();
-        expensiveProduct.setName("Expensive Product");
-        expensiveProduct.setPrice(new BigDecimal("999.99"));
-        expensiveProduct.setSku("EP-123456");
-        
-        productRepository.save(cheapProduct);
-        productRepository.save(expensiveProduct);
-        
-        // Test our custom query methods work with validated entities
-        var cheapProducts = productRepository.findByPriceLessThan(new BigDecimal("50.00"));
-        var expensiveProducts = productRepository.findByPriceGreaterThan(new BigDecimal("500.00"));
-        
-        assertThat(cheapProducts).hasSize(1);
-        assertThat(cheapProducts.get(0).getName()).isEqualTo("Cheap Product");
-        
-        assertThat(expensiveProducts).hasSize(1);
-        assertThat(expensiveProducts.get(0).getName()).isEqualTo("Expensive Product");
+    void testDecrementStockThrowsExceptionWhenInsufficientStock() {
+        Product product = new Product();
+        product.setQuantity(2);
+
+        assertThatThrownBy(() -> product.decrementStock(5))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Cannot decrement stock by 5");
+    }
+
+    @Test
+    void testIncrementStock() {
+        Product product = new Product();
+        product.setQuantity(10);
+
+        product.incrementStock(5);
+
+        assertThat(product.getQuantity()).isEqualTo(15);
     }
 }
 ```
 
-### Step 4.4: Update AppConfig with Validated Products
-
-Update the `AppConfig.java` to include properly validated sample data:
-
-```java
-// In the initializeDatabase method, replace the product creation with:
-List<Product> initialProducts = List.of(
-    createProduct("MacBook Pro 16\"", "2499.99", "High-performance laptop for professionals", 5, "MAC-001001", "sales@apple.com"),
-    createProduct("iPad Air", "599.99", "Lightweight tablet with M1 chip", 10, "IPD-002001", "sales@apple.com"),
-    createProduct("iPhone 15 Pro", "999.99", "Latest smartphone with titanium design", 15, "IPH-003001", "sales@apple.com"),
-    createProduct("AirPods Pro", "249.99", "Wireless earbuds with active noise cancellation", 25, "APD-004001", "sales@apple.com"),
-    createProduct("Magic Mouse", "79.99", "Wireless multi-touch mouse", 20, "MOU-005001", "sales@apple.com"),
-    createProduct("Magic Keyboard", "179.99", "Wireless keyboard with numeric keypad", 12, "KEY-006001", "sales@apple.com"),
-    createProduct("Apple Watch Series 9", "399.99", "Advanced health and fitness tracking", 18, "WAT-007001", "sales@apple.com"),
-    createProduct("Studio Display", "1599.99", "27-inch 5K Retina display", 3, "DIS-008001", "sales@apple.com"),
-    createProduct("Mac Studio", "1999.99", "Desktop computer with M2 Max chip", 4, "MAC-009001", "sales@apple.com"),
-    createProduct("HomePod mini", "99.99", "Smart speaker with Siri", 30, "HOM-010001", "sales@apple.com")
-);
-
-// Add this helper method to AppConfig:
-private Product createProduct(String name, String price, String description, 
-                             int quantity, String sku, String email) {
-    Product product = new Product();
-    product.setName(name);
-    product.setPrice(new BigDecimal(price));
-    product.setDescription(description);
-    product.setQuantity(quantity);
-    product.setSku(sku);
-    product.setContactEmail(email);
-    return product;
-}
-```
-
-### Step 4.5: Run Validation Tests
+### Step 1.3: Run Tests
 
 ```bash
-# Run validation-specific tests
-./gradlew test --tests ProductValidationTest
-./gradlew test --tests ProductRepositoryValidationTest
-
-# Run all tests to ensure nothing is broken
-./gradlew test
-
-# Start the application to see validation in action
-./gradlew bootRun
+cd shopping
+./gradlew test --tests ProductTest
 ```
-
-### Step 4.6: Test Validation in H2 Console
-
-1. Start the application: `./gradlew bootRun`
-2. Go to H2 Console: http://localhost:8080/h2-console
-3. Try invalid SQL inserts to see constraint violations:
-
-```sql
--- This should fail due to validation constraints
-INSERT INTO products (name, price, quantity, sku, contact_email) 
-VALUES ('', 0.00, -1, 'INVALID', 'not-an-email');
-
--- This should succeed
-INSERT INTO products (name, price, description, quantity, sku, contact_email) 
-VALUES ('Test Product', 99.99, 'A test product', 5, 'TST-123456', 'test@example.com');
-```
-
-**Key Learning Points:**
-- **Bean Validation Annotations**: @NotBlank, @Size, @DecimalMin, @Pattern, @Email, etc.
-- **Validation Layers**: Entity-level, repository-level, and application-level validation
-- **Constraint Violation Testing**: Using Validator for unit tests
-- **Integration Testing**: Testing validation with actual persistence
-- **Custom Validation Messages**: User-friendly error messages
-- **Parameterized Tests**: Testing multiple invalid inputs efficiently
-- **Database Constraints**: How validation translates to database constraints
 
 [Back to Table of Contents](#table-of-contents)
 
-## Lab 5: Add Service Layer with @Transactional
+---
 
-**Objective**: Create a service layer that encapsulates business logic and demonstrates transaction management with @Transactional.
+## Lab 2: Create the Repository Layer with Custom Queries
 
-### Step 5.1: Create Custom Exceptions
+**Objective**: Implement the data access layer using Spring Data JPA with custom queries.
 
-First, create domain-specific exceptions for business rules:
+### Step 2.1: Create the ProductRepository Interface
 
-Create `src/main/java/com/kousenit/shopping/exceptions/ProductNotFoundException.java`:
+Create `src/main/java/com/kousenit/shopping/repositories/ProductRepository.java`:
 
 ```java
-package com.kousenit.shopping.exceptions;
+package com.kousenit.shopping.repositories;
 
-import lombok.Getter;
+import com.kousenit.shopping.entities.Product;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
 
-@Getter
-public class ProductNotFoundException extends RuntimeException {
-    private final Long productId;
-    
-    public ProductNotFoundException(Long productId) {
-        super("Product not found with id: " + productId);
-        this.productId = productId;
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
+
+@Repository
+public interface ProductRepository extends JpaRepository<Product, Long> {
+
+    // Derived query methods (Spring Data generates implementation)
+    Optional<Product> findBySku(String sku);
+
+    List<Product> findByNameContainingIgnoreCase(String name);
+
+    List<Product> findByPriceBetween(BigDecimal minPrice, BigDecimal maxPrice);
+
+    List<Product> findByQuantityGreaterThan(Integer quantity);
+
+    List<Product> findByNameContainingIgnoreCaseAndPriceBetween(
+        String name, BigDecimal minPrice, BigDecimal maxPrice);
+
+    boolean existsBySku(String sku);
+
+    long countByQuantityLessThan(Integer quantity);
+
+    // Custom JPQL queries
+    @Query("SELECT p FROM Product p WHERE p.quantity < :threshold ORDER BY p.quantity ASC")
+    List<Product> findLowStockProducts(@Param("threshold") Integer threshold);
+
+    @Query("SELECT p FROM Product p WHERE p.price >= :minPrice ORDER BY p.price DESC")
+    List<Product> findExpensiveProducts(@Param("minPrice") BigDecimal minPrice);
+
+    // Modifying queries for batch operations
+    @Modifying
+    @Query("UPDATE Product p SET p.quantity = p.quantity - :amount WHERE p.id = :id")
+    void decrementStock(@Param("id") Long id, @Param("amount") Integer amount);
+
+    @Modifying
+    @Query("UPDATE Product p SET p.quantity = p.quantity + :amount WHERE p.id = :id")
+    void incrementStock(@Param("id") Long id, @Param("amount") Integer amount);
+
+    // Native SQL query example
+    @Query(value = "SELECT * FROM products WHERE price > :price AND quantity > 0 ORDER BY created_at DESC LIMIT :limit",
+           nativeQuery = true)
+    List<Product> findRecentProductsInStock(@Param("price") BigDecimal price, @Param("limit") int limit);
+}
+```
+
+**Key Features:**
+- **Derived Queries** - Method names generate SQL automatically
+- **Custom JPQL** - @Query for complex business logic
+- **Native SQL** - When you need database-specific features
+- **Modifying Queries** - Batch operations with @Modifying
+- **Type Safety** - Compile-time checking with method signatures
+
+### Step 2.2: Create Repository Tests
+
+Create `src/test/java/com/kousenit/shopping/repositories/ProductRepositoryTest.java`:
+
+```java
+package com.kousenit.shopping.repositories;
+
+import com.kousenit.shopping.entities.Product;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+import org.springframework.test.context.ActiveProfiles;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@DataJpaTest
+@ActiveProfiles("test")
+class ProductRepositoryTest {
+
+    @Autowired
+    private TestEntityManager entityManager;
+
+    @Autowired
+    private ProductRepository productRepository;
+
+    private Product laptop;
+    private Product mouse;
+    private Product keyboard;
+
+    @BeforeEach
+    void setUp() {
+        laptop = new Product();
+        laptop.setName("Gaming Laptop");
+        laptop.setPrice(new BigDecimal("1299.99"));
+        laptop.setDescription("High-performance laptop");
+        laptop.setQuantity(5);
+        laptop.setSku("LAP-123456");
+        laptop.setContactEmail("sales@tech.com");
+
+        mouse = new Product();
+        mouse.setName("Wireless Mouse");
+        mouse.setPrice(new BigDecimal("29.99"));
+        mouse.setDescription("Ergonomic wireless mouse");
+        mouse.setQuantity(50);
+        mouse.setSku("MOU-123456");
+        mouse.setContactEmail("sales@tech.com");
+
+        keyboard = new Product();
+        keyboard.setName("Mechanical Keyboard");
+        keyboard.setPrice(new BigDecimal("89.99"));
+        keyboard.setDescription("RGB mechanical keyboard");
+        keyboard.setQuantity(20);
+        keyboard.setSku("KEY-123456");
+        keyboard.setContactEmail("sales@tech.com");
+
+        entityManager.persist(laptop);
+        entityManager.persist(mouse);
+        entityManager.persist(keyboard);
+        entityManager.flush();
     }
-    
-    public ProductNotFoundException(String message) {
-        super(message);
-        this.productId = null;
+
+    @Test
+    void testFindBySku() {
+        Optional<Product> found = productRepository.findBySku("LAP-123456");
+
+        assertThat(found).isPresent();
+        assertThat(found.get().getName()).isEqualTo("Gaming Laptop");
+    }
+
+    @Test
+    void testFindByNameContainingIgnoreCase() {
+        List<Product> products = productRepository.findByNameContainingIgnoreCase("mouse");
+
+        assertThat(products).hasSize(1);
+        assertThat(products.get(0).getName()).isEqualTo("Wireless Mouse");
+    }
+
+    @Test
+    void testFindByPriceBetween() {
+        List<Product> products = productRepository.findByPriceBetween(
+            new BigDecimal("50.00"),
+            new BigDecimal("100.00")
+        );
+
+        assertThat(products).hasSize(1);
+        assertThat(products.get(0).getName()).isEqualTo("Mechanical Keyboard");
+    }
+
+    @Test
+    void testFindLowStockProducts() {
+        List<Product> lowStock = productRepository.findLowStockProducts(10);
+
+        assertThat(lowStock).hasSize(1);
+        assertThat(lowStock.get(0).getName()).isEqualTo("Gaming Laptop");
+        assertThat(lowStock.get(0).getQuantity()).isEqualTo(5);
+    }
+
+    @Test
+    void testFindExpensiveProducts() {
+        List<Product> expensive = productRepository.findExpensiveProducts(new BigDecimal("100.00"));
+
+        assertThat(expensive).hasSize(1);
+        assertThat(expensive.get(0).getName()).isEqualTo("Gaming Laptop");
+    }
+
+    @Test
+    void testExistsBySku() {
+        boolean exists = productRepository.existsBySku("MOU-123456");
+        assertThat(exists).isTrue();
+
+        boolean notExists = productRepository.existsBySku("XXX-999999");
+        assertThat(notExists).isFalse();
+    }
+
+    @Test
+    void testCountByQuantityLessThan() {
+        long count = productRepository.countByQuantityLessThan(10);
+        assertThat(count).isEqualTo(1); // Only laptop has quantity < 10
     }
 }
 ```
 
-Create `src/main/java/com/kousenit/shopping/exceptions/ProductValidationException.java`:
+### Step 2.3: Run Repository Tests
 
-```java
-package com.kousenit.shopping.exceptions;
-
-import lombok.Getter;
-
-@Getter
-public class ProductValidationException extends RuntimeException {
-    private final String field;
-    private final Object value;
-    
-    public ProductValidationException(String field, Object value, String message) {
-        super(message);
-        this.field = field;
-        this.value = value;
-    }
-}
+```bash
+./gradlew test --tests ProductRepositoryTest
 ```
 
-Create `src/main/java/com/kousenit/shopping/exceptions/InsufficientStockException.java`:
+[Back to Table of Contents](#table-of-contents)
 
-```java
-package com.kousenit.shopping.exceptions;
+---
 
-import lombok.Getter;
+## Lab 3: Create DTOs for API Boundaries
 
-@Getter
-public class InsufficientStockException extends RuntimeException {
-    private final Long productId;
-    private final Integer requestedQuantity;
-    private final Integer availableQuantity;
-    
-    public InsufficientStockException(Long productId, Integer requestedQuantity, Integer availableQuantity) {
-        super(String.format("Insufficient stock for product %d. Requested: %d, Available: %d", 
-              productId, requestedQuantity, availableQuantity));
-        this.productId = productId;
-        this.requestedQuantity = requestedQuantity;
-        this.availableQuantity = availableQuantity;
-    }
-}
-```
+**Objective**: Separate the domain model from API contracts using Data Transfer Objects (DTOs) implemented as Java records.
 
-### Step 5.2: Create DTO Classes
+**Why DTOs?**
+- **Decoupling**: API contracts independent of database schema
+- **Security**: Don't expose internal entity structure
+- **Validation**: Different validation rules for input vs. domain
+- **Immutability**: Records are perfect for request/response objects
 
-First, create Data Transfer Objects (DTOs) for API requests and responses:
+### Step 3.1: Create ProductRequest DTO
 
 Create `src/main/java/com/kousenit/shopping/dto/ProductRequest.java`:
 
@@ -1451,28 +549,30 @@ public record ProductRequest(
     @NotBlank(message = "Product name is required")
     @Size(min = 3, max = 100, message = "Product name must be between 3 and 100 characters")
     String name,
-    
+
     @DecimalMin(value = "0.01", message = "Price must be greater than 0")
     @DecimalMax(value = "999999.99", message = "Price must be less than 1,000,000")
     @NotNull(message = "Price is required")
     BigDecimal price,
-    
+
     @Size(max = 500, message = "Description cannot exceed 500 characters")
     String description,
-    
-    @PositiveOrZero(message = "Quantity must be greater than or equal to zero")
+
+    @Min(value = 0, message = "Quantity cannot be negative")
     @NotNull(message = "Quantity is required")
     Integer quantity,
-    
+
     @NotBlank(message = "SKU is required")
-    @Pattern(regexp = "^[A-Z]{3}-[0-9]{6}$", 
+    @Pattern(regexp = "^[A-Z]{3}-[0-9]{6}$",
              message = "SKU must follow the pattern: 3 uppercase letters, hyphen, 6 digits (e.g., ABC-123456)")
     String sku,
-    
+
     @Email(message = "Contact email must be a valid email address")
     String contactEmail
 ) {}
 ```
+
+### Step 3.2: Create ProductResponse DTO
 
 Create `src/main/java/com/kousenit/shopping/dto/ProductResponse.java`:
 
@@ -1492,8 +592,11 @@ public record ProductResponse(
     String sku,
     String contactEmail,
     LocalDateTime createdAt,
-    LocalDateTime updatedAt
+    LocalDateTime updatedAt,
+    boolean inStock,
+    String stockStatus
 ) {
+
     public static ProductResponse from(Product product) {
         return new ProductResponse(
             product.getId(),
@@ -1504,28 +607,195 @@ public record ProductResponse(
             product.getSku(),
             product.getContactEmail(),
             product.getCreatedAt(),
-            product.getUpdatedAt()
+            product.getUpdatedAt(),
+            product.getQuantity() > 0,
+            getStockStatus(product.getQuantity())
         );
+    }
+
+    private static String getStockStatus(Integer quantity) {
+        if (quantity == 0) return "OUT_OF_STOCK";
+        if (quantity < 10) return "LOW_STOCK";
+        if (quantity < 50) return "MEDIUM_STOCK";
+        return "IN_STOCK";
     }
 }
 ```
+
+**Key Features:**
+- **Static Factory Method** - Clean conversion from entity
+- **Computed Fields** - `inStock` and `stockStatus` derived from quantity
+- **Immutability** - Records are immutable by default
+
+### Step 3.3: Create StockUpdateRequest DTO
 
 Create `src/main/java/com/kousenit/shopping/dto/StockUpdateRequest.java`:
 
 ```java
 package com.kousenit.shopping.dto;
 
-import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 
 public record StockUpdateRequest(
     @NotNull(message = "Quantity is required")
-    @PositiveOrZero(message = "Quantity must be greater than or equal to zero")
+    @Min(value = 1, message = "Quantity must be at least 1")
     Integer quantity
 ) {}
 ```
 
-### Step 5.3: Create the ProductService
+### Step 3.4: Create ValidationError DTO
+
+Create `src/main/java/com/kousenit/shopping/dto/ValidationError.java`:
+
+```java
+package com.kousenit.shopping.dto;
+
+public record ValidationError(
+    String field,
+    Object rejectedValue,
+    String message,
+    String code
+) {
+    public static ValidationError of(String field, Object rejectedValue, String message, String code) {
+        return new ValidationError(field, rejectedValue, message, code);
+    }
+}
+```
+
+### Step 3.5: Create ApiError DTO
+
+Create `src/main/java/com/kousenit/shopping/dto/ApiError.java`:
+
+```java
+package com.kousenit.shopping.dto;
+
+import org.springframework.http.HttpStatus;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+public record ApiError(
+    LocalDateTime timestamp,
+    int status,
+    String error,
+    String message,
+    String path,
+    List<ValidationError> validationErrors
+) {
+    public static ApiError withValidationErrors(
+            HttpStatus status,
+            String message,
+            String path,
+            List<ValidationError> validationErrors) {
+        return new ApiError(
+            LocalDateTime.now(),
+            status.value(),
+            status.getReasonPhrase(),
+            message,
+            path,
+            validationErrors
+        );
+    }
+}
+```
+
+[Back to Table of Contents](#table-of-contents)
+
+---
+
+## Lab 4: Create Custom Exception Classes
+
+**Objective**: Create domain-specific exceptions with Lombok for clean, maintainable error handling.
+
+### Step 4.1: Create ProductNotFoundException
+
+Create `src/main/java/com/kousenit/shopping/exceptions/ProductNotFoundException.java`:
+
+```java
+package com.kousenit.shopping.exceptions;
+
+import lombok.Getter;
+
+@Getter
+public class ProductNotFoundException extends RuntimeException {
+    private final Long productId;
+
+    public ProductNotFoundException(Long productId) {
+        super("Product not found with id: " + productId);
+        this.productId = productId;
+    }
+
+    public ProductNotFoundException(String message) {
+        super(message);
+        this.productId = null;
+    }
+}
+```
+
+### Step 4.2: Create InsufficientStockException
+
+Create `src/main/java/com/kousenit/shopping/exceptions/InsufficientStockException.java`:
+
+```java
+package com.kousenit.shopping.exceptions;
+
+import lombok.Getter;
+
+@Getter
+public class InsufficientStockException extends RuntimeException {
+    private final Long productId;
+    private final Integer requestedQuantity;
+    private final Integer availableQuantity;
+
+    public InsufficientStockException(Long productId, Integer requestedQuantity, Integer availableQuantity) {
+        super(String.format("Insufficient stock for product %d. Requested: %d, Available: %d",
+              productId, requestedQuantity, availableQuantity));
+        this.productId = productId;
+        this.requestedQuantity = requestedQuantity;
+        this.availableQuantity = availableQuantity;
+    }
+}
+```
+
+### Step 4.3: Create ProductValidationException
+
+Create `src/main/java/com/kousenit/shopping/exceptions/ProductValidationException.java`:
+
+```java
+package com.kousenit.shopping.exceptions;
+
+import lombok.Getter;
+
+@Getter
+public class ProductValidationException extends RuntimeException {
+    private final String field;
+    private final Object value;
+
+    public ProductValidationException(String field, Object value, String message) {
+        super(message);
+        this.field = field;
+        this.value = value;
+    }
+}
+```
+
+**Why Lombok @Getter?**
+- Generates getters automatically for exception fields
+- Cleaner code without boilerplate
+- Fields remain properly encapsulated (private final)
+
+[Back to Table of Contents](#table-of-contents)
+
+---
+
+## Lab 5: Add Service Layer with Transaction Management
+
+**Objective**: Create a service layer that encapsulates business logic, returns DTOs, and demonstrates proper transaction management.
+
+**Modern Pattern**: No interfaces! Direct service classes are simpler for most applications.
+
+### Step 5.1: Create ProductService
 
 Create `src/main/java/com/kousenit/shopping/services/ProductService.java`:
 
@@ -1554,13 +824,47 @@ import java.util.List;
 @RequiredArgsConstructor
 @Slf4j
 public class ProductService {
-    
+
     private final ProductRepository productRepository;
-    
+
+    public ProductResponse getProductById(Long id) {
+        log.info("Fetching product with id: {}", id);
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new ProductNotFoundException(id));
+        return ProductResponse.from(product);
+    }
+
+    public Page<ProductResponse> getAllProducts(Pageable pageable) {
+        log.info("Fetching all products with pagination: {}", pageable);
+        return productRepository.findAll(pageable)
+                .map(ProductResponse::from);
+    }
+
+    public List<ProductResponse> searchProductsByName(String name) {
+        log.info("Searching products by name: {}", name);
+        return productRepository.findByNameContainingIgnoreCase(name)
+                .stream()
+                .map(ProductResponse::from)
+                .toList();
+    }
+
+    public List<ProductResponse> getProductsByPriceRange(BigDecimal minPrice, BigDecimal maxPrice) {
+        log.info("Fetching products in price range: {} - {}", minPrice, maxPrice);
+        if (minPrice.compareTo(maxPrice) > 0) {
+            throw new IllegalArgumentException("Min price cannot be greater than max price");
+        }
+        return productRepository.findByPriceBetween(minPrice, maxPrice)
+                .stream()
+                .map(ProductResponse::from)
+                .toList();
+    }
+
     @Transactional
     public ProductResponse createProduct(ProductRequest request) {
-        log.info("Creating new product: {}", request.name());
-        
+        log.info("Creating new product with SKU: {}", request.sku());
+
+        validateProductRequest(request);
+
         Product product = new Product();
         product.setName(request.name());
         product.setPrice(request.price());
@@ -1568,910 +872,171 @@ public class ProductService {
         product.setQuantity(request.quantity());
         product.setSku(request.sku());
         product.setContactEmail(request.contactEmail());
-        
-        Product saved = productRepository.save(product);
-        log.info("Created product with ID: {}", saved.getId());
-        return ProductResponse.from(saved);
+
+        Product savedProduct = productRepository.save(product);
+        log.info("Product created successfully with id: {}", savedProduct.getId());
+        return ProductResponse.from(savedProduct);
     }
-    
-    public ProductResponse getProductById(Long id) {
-        log.info("Fetching product with id: {}", id);
-        Product product = productRepository.findById(id)
-            .orElseThrow(() -> new ProductNotFoundException(id));
-        return ProductResponse.from(product);
-    }
-    
-    public Page<ProductResponse> getAllProducts(Pageable pageable) {
-        log.info("Fetching all products with pagination: {}", pageable);
-        return productRepository.findAll(pageable)
-            .map(ProductResponse::from);
-    }
-    
+
     @Transactional
-    public Product updateProduct(Long id, Product productUpdates) {
-        log.info("Updating product with ID: {}", id);
-        
-        Product existingProduct = getProductByIdOrThrow(id);
-        
-        // Update fields if provided
-        if (productUpdates.getName() != null) {
-            existingProduct.setName(productUpdates.getName());
+    public ProductResponse updateProduct(Long id, ProductRequest request) {
+        log.info("Updating product with id: {}", id);
+
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new ProductNotFoundException(id));
+
+        validateProductRequest(request);
+
+        // Check if SKU is being changed and if new SKU already exists
+        if (!product.getSku().equals(request.sku()) &&
+                productRepository.existsBySku(request.sku())) {
+            throw new ProductValidationException("sku", request.sku(),
+                    "Product with SKU " + request.sku() + " already exists");
         }
-        if (productUpdates.getPrice() != null) {
-            existingProduct.setPrice(productUpdates.getPrice());
-        }
-        if (productUpdates.getDescription() != null) {
-            existingProduct.setDescription(productUpdates.getDescription());
-        }
-        if (productUpdates.getQuantity() != null) {
-            existingProduct.setQuantity(productUpdates.getQuantity());
-        }
-        if (productUpdates.getSku() != null) {
-            existingProduct.setSku(productUpdates.getSku());
-        }
-        if (productUpdates.getContactEmail() != null) {
-            existingProduct.setContactEmail(productUpdates.getContactEmail());
-        }
-        
-        validateProduct(existingProduct);
-        Product updated = productRepository.save(existingProduct);
-        log.info("Updated product: {}", updated.getName());
-        return updated;
+
+        product.setName(request.name());
+        product.setPrice(request.price());
+        product.setDescription(request.description());
+        product.setQuantity(request.quantity());
+        product.setSku(request.sku());
+        product.setContactEmail(request.contactEmail());
+
+        Product updatedProduct = productRepository.save(product);
+        log.info("Product updated successfully");
+        return ProductResponse.from(updatedProduct);
     }
-    
+
     @Transactional
     public void deleteProduct(Long id) {
-        log.info("Deleting product with ID: {}", id);
-        
+        log.info("Deleting product with id: {}", id);
         if (!productRepository.existsById(id)) {
             throw new ProductNotFoundException(id);
         }
-        
         productRepository.deleteById(id);
-        log.info("Deleted product with ID: {}", id);
+        log.info("Product deleted successfully");
     }
-    
-    public List<Product> searchProductsByName(String name) {
-        log.debug("Searching products by name: {}", name);
-        return productRepository.findByNameContainingIgnoreCase(name);
-    }
-    
-    public List<Product> getProductsByPriceRange(BigDecimal minPrice, BigDecimal maxPrice) {
-        log.debug("Fetching products in price range: {} - {}", minPrice, maxPrice);
-        
-        if (minPrice.compareTo(maxPrice) > 0) {
-            throw new ProductValidationException("price range", 
-                String.format("%s-%s", minPrice, maxPrice), 
-                "Minimum price cannot be greater than maximum price");
-        }
-        
-        return productRepository.findByPriceBetween(minPrice, maxPrice);
-    }
-    
-    public List<Product> getProductsUnderPrice(BigDecimal maxPrice) {
-        log.debug("Fetching products under price: {}", maxPrice);
-        return productRepository.findProductsUnderPrice(maxPrice);
-    }
-    
-    public Optional<Product> getMostExpensiveProduct() {
-        log.debug("Fetching most expensive product");
-        return productRepository.findMostExpensiveProduct();
-    }
-    
-    @Transactional(isolation = Isolation.REPEATABLE_READ)
-    public Product updateStock(Long productId, int quantity) {
-        log.info("Updating stock for product {}: {}", productId, quantity);
-        
-        Product product = getProductByIdOrThrow(productId);
-        
-        if (quantity < 0) {
-            throw new ProductValidationException("quantity", quantity, "Quantity must be greater than or equal to zero");
-        }
-        
-        product.setQuantity(quantity);
-        Product updated = productRepository.save(product);
-        log.info("Updated stock for product {}: {}", productId, quantity);
-        return updated;
-    }
-    
-    @Transactional(isolation = Isolation.REPEATABLE_READ)
-    public Product reserveStock(Long productId, int quantity) {
-        log.info("Reserving stock for product {}: {}", productId, quantity);
-        
-        Product product = getProductByIdOrThrow(productId);
-        
-        if (product.getQuantity() < quantity) {
-            throw new InsufficientStockException(productId, quantity, product.getQuantity());
-        }
-        
-        product.setQuantity(product.getQuantity() - quantity);
-        Product updated = productRepository.save(product);
-        log.info("Reserved {} units for product {}", quantity, productId);
-        return updated;
-    }
-    
-    @Transactional(isolation = Isolation.REPEATABLE_READ)
-    public Product releaseStock(Long productId, int quantity) {
-        log.info("Releasing stock for product {}: {}", productId, quantity);
-        
-        Product product = getProductByIdOrThrow(productId);
-        product.setQuantity(product.getQuantity() + quantity);
-        Product updated = productRepository.save(product);
-        log.info("Released {} units for product {}", quantity, productId);
-        return updated;
-    }
-    
-    @Transactional(propagation = Propagation.REQUIRED)
-    public List<Product> createProducts(List<Product> products) {
-        log.info("Creating {} products in batch", products.size());
-        
-        // Validate all products first
-        products.forEach(this::validateProduct);
-        
-        List<Product> savedProducts = productRepository.saveAll(products);
-        log.info("Successfully created {} products", savedProducts.size());
-        return savedProducts;
-    }
-    
+
     @Transactional
-    public void updatePrices(List<Long> productIds, BigDecimal priceMultiplier) {
-        log.info("Updating prices for {} products with multiplier: {}", productIds.size(), priceMultiplier);
-        
-        if (priceMultiplier.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new ProductValidationException("priceMultiplier", priceMultiplier, 
-                "Price multiplier must be positive");
+    public ProductResponse updateStock(Long id, Integer newQuantity) {
+        log.info("Updating stock for product {}: new quantity {}", id, newQuantity);
+
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new ProductNotFoundException(id));
+
+        if (newQuantity < 0) {
+            throw new IllegalArgumentException("Stock quantity cannot be negative");
         }
-        
-        for (Long productId : productIds) {
-            Product product = getProductByIdOrThrow(productId);
-            BigDecimal newPrice = product.getPrice().multiply(priceMultiplier);
-            product.setPrice(newPrice);
-            productRepository.save(product);
-            log.debug("Updated price for product {}: {}", productId, newPrice);
-        }
-        
-        log.info("Completed price update for {} products", productIds.size());
+
+        Integer oldQuantity = product.getQuantity();
+        product.setQuantity(newQuantity);
+        Product updatedProduct = productRepository.save(product);
+
+        log.info("Stock updated for product {}: {} -> {}", id, oldQuantity, newQuantity);
+        return ProductResponse.from(updatedProduct);
     }
-    
+
     @Transactional
-    public void deleteProducts(List<Long> productIds) {
-        log.info("Deleting {} products", productIds.size());
-        
-        // Verify all products exist first
-        for (Long productId : productIds) {
-            if (!productRepository.existsById(productId)) {
-                throw new ProductNotFoundException(productId);
-            }
+    public ProductResponse reserveStock(Long id, Integer quantity) {
+        log.info("Reserving {} units of product {}", quantity, id);
+
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new ProductNotFoundException(id));
+
+        if (!product.hasStock(quantity)) {
+            throw new InsufficientStockException(id, quantity, product.getQuantity());
         }
-        
-        // Delete all products
-        productRepository.deleteAllById(productIds);
-        log.info("Successfully deleted {} products", productIds.size());
+
+        product.decrementStock(quantity);
+        Product updatedProduct = productRepository.save(product);
+
+        log.info("Reserved {} units of product {}. Remaining stock: {}",
+                quantity, id, updatedProduct.getQuantity());
+        return ProductResponse.from(updatedProduct);
     }
-    
-    public boolean isProductAvailable(Long productId) {
-        return productRepository.existsById(productId);
-    }
-    
-    public boolean isProductInStock(Long productId, int requiredQuantity) {
-        return getProductById(productId)
-            .map(product -> product.getQuantity() >= requiredQuantity)
-            .orElse(false);
-    }
-    
-    public long countProductsInPriceRange(BigDecimal minPrice, BigDecimal maxPrice) {
-        return productRepository.findByPriceBetween(minPrice, maxPrice).size();
-    }
-    
+
     @Transactional
-    public void initializeDatabase() {
-        log.info("Initializing database with sample products");
-        
-        if (productRepository.count() > 0) {
-            log.info("Database already contains {} products, skipping initialization", 
-                productRepository.count());
-            return;
+    public ProductResponse addStock(Long id, Integer quantity) {
+        log.info("Adding {} units to product {}", quantity, id);
+
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new ProductNotFoundException(id));
+
+        if (quantity <= 0) {
+            throw new IllegalArgumentException("Quantity to add must be positive");
         }
-        
-        List<Product> sampleProducts = List.of(
-            createSampleProduct("MacBook Pro 16\"", "2499.99", "High-performance laptop for professionals", 5, "MAC-001001", "sales@apple.com"),
-            createSampleProduct("iPad Air", "599.99", "Lightweight tablet with M1 chip", 10, "IPD-002001", "sales@apple.com"),
-            createSampleProduct("iPhone 15 Pro", "999.99", "Latest smartphone with titanium design", 15, "IPH-003001", "sales@apple.com"),
-            createSampleProduct("AirPods Pro", "249.99", "Wireless earbuds with active noise cancellation", 25, "APD-004001", "sales@apple.com"),
-            createSampleProduct("Magic Mouse", "79.99", "Wireless multi-touch mouse", 20, "MOU-005001", "sales@apple.com"),
-            createSampleProduct("Magic Keyboard", "179.99", "Wireless keyboard with numeric keypad", 12, "KEY-006001", "sales@apple.com"),
-            createSampleProduct("Apple Watch Series 9", "399.99", "Advanced health and fitness tracking", 18, "WAT-007001", "sales@apple.com"),
-            createSampleProduct("Studio Display", "1599.99", "27-inch 5K Retina display", 3, "DIS-008001", "sales@apple.com"),
-            createSampleProduct("Mac Studio", "1999.99", "Desktop computer with M2 Max chip", 4, "MAC-009001", "sales@apple.com"),
-            createSampleProduct("HomePod mini", "99.99", "Smart speaker with Siri", 30, "HOM-010001", "sales@apple.com")
-        );
-        
-        createProducts(sampleProducts);
-        log.info("Database initialization completed with {} products", sampleProducts.size());
+
+        product.incrementStock(quantity);
+        Product updatedProduct = productRepository.save(product);
+
+        log.info("Added {} units to product {}. New stock: {}",
+                quantity, id, updatedProduct.getQuantity());
+        return ProductResponse.from(updatedProduct);
     }
-    
-    private void validateProduct(Product product) {
-        if (product == null) {
-            throw new ProductValidationException("Product cannot be null");
-        }
-        
-        if (product.getName() == null || product.getName().trim().isEmpty()) {
-            throw new ProductValidationException("name", product.getName(), "Product name is required");
-        }
-        
-        if (product.getPrice() == null) {
-            throw new ProductValidationException("price", null, "Product price is required");
-        }
-        
-        if (product.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new ProductValidationException("price", product.getPrice(), "Price must be positive");
-        }
+
+    public List<ProductResponse> getLowStockProducts(Integer threshold) {
+        log.info("Fetching products with stock below {}", threshold);
+        return productRepository.findLowStockProducts(threshold)
+                .stream()
+                .map(ProductResponse::from)
+                .toList();
     }
-    
-    private Product createSampleProduct(String name, String price, String description, 
-                                       int quantity, String sku, String email) {
-        Product product = new Product();
-        product.setName(name);
-        product.setPrice(new BigDecimal(price));
-        product.setDescription(description);
-        product.setQuantity(quantity);
-        product.setSku(sku);
-        product.setContactEmail(email);
-        return product;
+
+    public List<ProductResponse> getExpensiveProducts(BigDecimal minPrice) {
+        log.info("Fetching products with price above {}", minPrice);
+        return productRepository.findExpensiveProducts(minPrice)
+                .stream()
+                .map(ProductResponse::from)
+                .toList();
+    }
+
+    public long count() {
+        return productRepository.count();
+    }
+
+    private void validateProductRequest(ProductRequest request) {
+        // Additional business validation beyond bean validation
+        if (request.price() != null && request.price().scale() > 2) {
+            throw new ProductValidationException("price", request.price(),
+                    "Price can have at most 2 decimal places");
+        }
     }
 }
 ```
 
-**Note on Modern Spring Boot Patterns:**
-The service implementation above demonstrates several modern Spring Boot patterns:
-- **Direct service classes** instead of interface/implementation separation (simpler for most applications)
-- **Lombok annotations** (`@RequiredArgsConstructor`, `@Slf4j`) for cleaner code
-- **DTO pattern** with records for API boundaries
-- **Method chaining** with fluent API style
-
-### Step 5.4: Update AppConfig to Use Service
-
-Update `src/main/java/com/kousenit/shopping/config/AppConfig.java`:
-
-```java
-package com.kousenit.shopping.config;
-
-import com.kousenit.shopping.services.ProductService;
-import org.springframework.boot.CommandLineRunner;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
-
-@Configuration
-public class AppConfig {
-    
-    @Bean
-    @Profile("!test") // Don't run during tests
-    public CommandLineRunner initializeDatabase(ProductService productService) {
-        return args -> productService.initializeDatabase();
-    }
-    
-    @Bean
-    @Profile("demo")
-    public CommandLineRunner demonstrateServiceOperations(ProductService productService) {
-        return args -> {
-            System.out.println("\n=== Service Layer Demonstrations ===");
-            
-            // Search operations
-            System.out.println("\nProducts containing 'Pro':");
-            productService.searchProductsByName("Pro")
-                .forEach(product -> System.out.println("  " + product.getName() + " - $" + product.getPrice()));
-            
-            // Price range operations
-            System.out.println("\nExpensive products (>$1000):");
-            productService.getProductsByPriceRange(new java.math.BigDecimal("1000.00"), new java.math.BigDecimal("10000.00"))
-                .forEach(product -> System.out.println("  " + product.getName() + " - $" + product.getPrice()));
-            
-            // Most expensive product
-            productService.getMostExpensiveProduct()
-                .ifPresent(product -> System.out.println("\nMost expensive: " + product.getName() + " - $" + product.getPrice()));
-            
-            // Stock operations
-            System.out.println("\nStock availability check:");
-            System.out.println("  iPhone in stock (5 units): " + productService.isProductInStock(3L, 5));
-            System.out.println("  iPhone in stock (50 units): " + productService.isProductInStock(3L, 50));
-        };
-    }
-}
-```
-
-### Step 5.5: Service Unit Tests
-
-Create `src/test/java/com/kousenit/shopping/services/ProductServiceTest.java`:
-
-```java
-package com.kousenit.shopping.services;
-
-import com.kousenit.shopping.entities.Product;
-import com.kousenit.shopping.exceptions.InsufficientStockException;
-import com.kousenit.shopping.exceptions.ProductNotFoundException;
-import com.kousenit.shopping.exceptions.ProductValidationException;
-import com.kousenit.shopping.repositories.ProductRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.ActiveProfiles;
-
-import java.math.BigDecimal;
-import java.util.List;
-import java.util.Optional;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.*;
-
-@SpringBootTest
-@ActiveProfiles("test")
-class ProductServiceTest {
-    
-    @MockitoBean
-    private ProductRepository productRepository;
-    
-    @Autowired
-    private ProductService productService;
-    
-    private Product sampleProduct;
-    
-    @BeforeEach
-    void setUp() {
-        sampleProduct = new Product();
-        sampleProduct.setId(1L);
-        sampleProduct.setName("Test Product");
-        sampleProduct.setPrice(new BigDecimal("99.99"));
-        sampleProduct.setQuantity(10);
-        sampleProduct.setSku("TST-123456");
-        sampleProduct.setContactEmail("test@example.com");
-    }
-    
-    @Test
-    void testCreateProductSuccess() {
-        // Given
-        Product newProduct = new Product();
-        newProduct.setName("New Product");
-        newProduct.setPrice(new BigDecimal("149.99"));
-        
-        when(productRepository.existsByNameIgnoreCase(any())).thenReturn(false);
-        when(productRepository.save(any(Product.class))).thenReturn(sampleProduct);
-        
-        // When
-        Product result = productService.createProduct(newProduct);
-        
-        // Then
-        assertThat(result).isEqualTo(sampleProduct);
-        verify(productRepository).save(newProduct);
-    }
-    
-    @Test
-    void testCreateProductWithNullName() {
-        // Given
-        Product invalidProduct = new Product();
-        invalidProduct.setPrice(new BigDecimal("99.99"));
-        // name is null
-        
-        // When/Then
-        assertThatThrownBy(() -> productService.createProduct(invalidProduct))
-            .isInstanceOf(ProductValidationException.class)
-            .hasMessageContaining("Product name is required");
-        
-        verify(productRepository, never()).save(any());
-    }
-    
-    @Test
-    void testGetProductByIdSuccess() {
-        // Given
-        when(productRepository.findById(1L)).thenReturn(Optional.of(sampleProduct));
-        
-        // When
-        Optional<Product> result = productService.getProductById(1L);
-        
-        // Then
-        assertThat(result).isPresent();
-        assertThat(result.get()).isEqualTo(sampleProduct);
-    }
-    
-    @Test
-    void testGetProductByIdNotFound() {
-        // Given
-        when(productRepository.findById(anyLong())).thenReturn(Optional.empty());
-        
-        // When
-        Optional<Product> result = productService.getProductById(999L);
-        
-        // Then
-        assertThat(result).isEmpty();
-    }
-    
-    @Test
-    void testGetProductByIdOrThrowNotFound() {
-        // Given
-        when(productRepository.findById(anyLong())).thenReturn(Optional.empty());
-        
-        // When/Then
-        assertThatThrownBy(() -> productService.getProductByIdOrThrow(999L))
-            .isInstanceOf(ProductNotFoundException.class)
-            .hasMessageContaining("Product not found with id: 999");
-    }
-    
-    @Test
-    void testUpdateProductSuccess() {
-        // Given
-        Product updates = new Product();
-        updates.setName("Updated Name");
-        updates.setPrice(new BigDecimal("199.99"));
-        
-        when(productRepository.findById(1L)).thenReturn(Optional.of(sampleProduct));
-        when(productRepository.save(any(Product.class))).thenReturn(sampleProduct);
-        
-        // When
-        Product result = productService.updateProduct(1L, updates);
-        
-        // Then
-        assertThat(result.getName()).isEqualTo("Updated Name");
-        assertThat(result.getPrice()).isEqualTo(new BigDecimal("199.99"));
-        verify(productRepository).save(sampleProduct);
-    }
-    
-    @Test
-    void testDeleteProductSuccess() {
-        // Given
-        when(productRepository.existsById(1L)).thenReturn(true);
-        
-        // When
-        productService.deleteProduct(1L);
-        
-        // Then
-        verify(productRepository).deleteById(1L);
-    }
-    
-    @Test
-    void testDeleteProductNotFound() {
-        // Given
-        when(productRepository.existsById(anyLong())).thenReturn(false);
-        
-        // When/Then
-        assertThatThrownBy(() -> productService.deleteProduct(999L))
-            .isInstanceOf(ProductNotFoundException.class);
-        
-        verify(productRepository, never()).deleteById(anyLong());
-    }
-    
-    @Test
-    void testReserveStockSuccess() {
-        // Given
-        sampleProduct.setQuantity(10);
-        when(productRepository.findById(1L)).thenReturn(Optional.of(sampleProduct));
-        when(productRepository.save(any(Product.class))).thenReturn(sampleProduct);
-        
-        // When
-        Product result = productService.reserveStock(1L, 5);
-        
-        // Then
-        assertThat(result.getQuantity()).isEqualTo(5);
-        verify(productRepository).save(sampleProduct);
-    }
-    
-    @Test
-    void testReserveStockInsufficientStock() {
-        // Given
-        sampleProduct.setQuantity(3);
-        when(productRepository.findById(1L)).thenReturn(Optional.of(sampleProduct));
-        
-        // When/Then
-        assertThatThrownBy(() -> productService.reserveStock(1L, 5))
-            .isInstanceOf(InsufficientStockException.class)
-            .hasMessageContaining("Insufficient stock for product 1");
-        
-        verify(productRepository, never()).save(any());
-    }
-    
-    @Test
-    void testReleaseStock() {
-        // Given
-        sampleProduct.setQuantity(5);
-        when(productRepository.findById(1L)).thenReturn(Optional.of(sampleProduct));
-        when(productRepository.save(any(Product.class))).thenReturn(sampleProduct);
-        
-        // When
-        Product result = productService.releaseStock(1L, 3);
-        
-        // Then
-        assertThat(result.getQuantity()).isEqualTo(8);
-        verify(productRepository).save(sampleProduct);
-    }
-    
-    @Test
-    void testCreateProductsBatch() {
-        // Given
-        List<Product> products = List.of(
-            new Product("Product 1", new BigDecimal("99.99")),
-            new Product("Product 2", new BigDecimal("149.99"))
-        );
-        
-        when(productRepository.saveAll(any())).thenReturn(products);
-        
-        // When
-        List<Product> result = productService.createProducts(products);
-        
-        // Then
-        assertThat(result).hasSize(2);
-        verify(productRepository).saveAll(products);
-    }
-    
-    @Test
-    void testUpdatePrices() {
-        // Given
-        List<Long> productIds = List.of(1L, 2L);
-        BigDecimal multiplier = new BigDecimal("1.1");
-        
-        when(productRepository.findById(anyLong())).thenReturn(Optional.of(sampleProduct));
-        when(productRepository.save(any(Product.class))).thenReturn(sampleProduct);
-        
-        // When
-        productService.updatePrices(productIds, multiplier);
-        
-        // Then
-        verify(productRepository, times(2)).findById(anyLong());
-        verify(productRepository, times(2)).save(any(Product.class));
-    }
-    
-    @Test
-    void testIsProductInStock() {
-        // Given
-        when(productRepository.findById(1L)).thenReturn(Optional.of(sampleProduct));
-        
-        // When/Then
-        assertThat(productService.isProductInStock(1L, 5)).isTrue();
-        assertThat(productService.isProductInStock(1L, 15)).isFalse();
-    }
-    
-    @Test
-    void testSearchProductsByName() {
-        // Given
-        List<Product> searchResults = List.of(sampleProduct);
-        when(productRepository.findByNameContainingIgnoreCase("Test")).thenReturn(searchResults);
-        
-        // When
-        List<Product> result = productService.searchProductsByName("Test");
-        
-        // Then
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0)).isEqualTo(sampleProduct);
-    }
-}
-```
-
-### Step 5.6: Service Integration Tests
-
-Create `src/test/java/com/kousenit/shopping/services/ProductServiceIntegrationTest.java`:
-
-```java
-package com.kousenit.shopping.services;
-
-import com.kousenit.shopping.entities.Product;
-import com.kousenit.shopping.exceptions.InsufficientStockException;
-import com.kousenit.shopping.exceptions.ProductNotFoundException;
-import com.kousenit.shopping.repositories.ProductRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.math.BigDecimal;
-import java.util.List;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
-@SpringBootTest
-@ActiveProfiles("test")
-@Transactional
-class ProductServiceIntegrationTest {
-    
-    @Autowired
-    private ProductService productService;
-    
-    @Autowired
-    private ProductRepository productRepository;
-    
-    private Product testProduct;
-    
-    @BeforeEach
-    void setUp() {
-        testProduct = new Product();
-        testProduct.setName("Integration Test Product");
-        testProduct.setPrice(new BigDecimal("99.99"));
-        testProduct.setQuantity(10);
-        testProduct.setSku("INT-123456");
-        testProduct.setContactEmail("test@integration.com");
-    }
-    
-    @Test
-    void testCompleteProductLifecycle() {
-        // Create product
-        Product created = productService.createProduct(testProduct);
-        assertThat(created.getId()).isNotNull();
-        assertThat(created.getName()).isEqualTo("Integration Test Product");
-        
-        // Read product
-        Product found = productService.getProductByIdOrThrow(created.getId());
-        assertThat(found.getName()).isEqualTo("Integration Test Product");
-        
-        // Update product
-        Product updates = new Product();
-        updates.setPrice(new BigDecimal("149.99"));
-        updates.setDescription("Updated description");
-        
-        Product updated = productService.updateProduct(created.getId(), updates);
-        assertThat(updated.getPrice()).isEqualTo(new BigDecimal("149.99"));
-        assertThat(updated.getDescription()).isEqualTo("Updated description");
-        
-        // Delete product
-        productService.deleteProduct(created.getId());
-        assertThatThrownBy(() -> productService.getProductByIdOrThrow(created.getId()))
-            .isInstanceOf(ProductNotFoundException.class);
-    }
-    
-    @Test
-    void testStockManagement() {
-        // Create product with initial stock
-        Product created = productService.createProduct(testProduct);
-        assertThat(created.getQuantity()).isEqualTo(10);
-        
-        // Reserve stock
-        Product reserved = productService.reserveStock(created.getId(), 3);
-        assertThat(reserved.getQuantity()).isEqualTo(7);
-        
-        // Try to reserve more than available
-        assertThatThrownBy(() -> productService.reserveStock(created.getId(), 10))
-            .isInstanceOf(InsufficientStockException.class);
-        
-        // Release stock
-        Product released = productService.releaseStock(created.getId(), 2);
-        assertThat(released.getQuantity()).isEqualTo(9);
-        
-        // Update stock directly
-        Product updatedStock = productService.updateStock(created.getId(), 20);
-        assertThat(updatedStock.getQuantity()).isEqualTo(20);
-    }
-    
-    @Test
-    void testBatchOperations() {
-        // Create multiple products
-        List<Product> products = List.of(
-            createTestProduct("Batch Product 1", "99.99", "BP1-123456"),
-            createTestProduct("Batch Product 2", "149.99", "BP2-123456"),
-            createTestProduct("Batch Product 3", "199.99", "BP3-123456")
-        );
-        
-        List<Product> created = productService.createProducts(products);
-        assertThat(created).hasSize(3);
-        
-        // Update prices
-        List<Long> productIds = created.stream().map(Product::getId).toList();
-        productService.updatePrices(productIds, new BigDecimal("1.1"));
-        
-        // Verify price updates
-        Product updated1 = productService.getProductByIdOrThrow(productIds.get(0));
-        assertThat(updated1.getPrice()).isEqualTo(new BigDecimal("109.989"));
-        
-        // Delete all products
-        productService.deleteProducts(productIds);
-        
-        // Verify deletion
-        for (Long id : productIds) {
-            assertThatThrownBy(() -> productService.getProductByIdOrThrow(id))
-                .isInstanceOf(ProductNotFoundException.class);
-        }
-    }
-    
-    @Test
-    void testSearchOperations() {
-        // Create test products
-        productService.createProduct(createTestProduct("Apple iPhone", "999.99", "APL-001"));
-        productService.createProduct(createTestProduct("Samsung Galaxy", "799.99", "SAM-001"));
-        productService.createProduct(createTestProduct("Apple iPad", "599.99", "APL-002"));
-        
-        // Search by name
-        List<Product> appleProducts = productService.searchProductsByName("Apple");
-        assertThat(appleProducts).hasSize(2);
-        
-        // Search by price range
-        List<Product> midRangeProducts = productService.getProductsByPriceRange(
-            new BigDecimal("600.00"), new BigDecimal("900.00"));
-        assertThat(midRangeProducts).hasSize(2);
-        
-        // Get products under price
-        List<Product> cheapProducts = productService.getProductsUnderPrice(new BigDecimal("800.00"));
-        assertThat(cheapProducts).hasSize(2);
-        
-        // Get most expensive
-        productService.getMostExpensiveProduct()
-            .ifPresent(product -> assertThat(product.getName()).contains("iPhone"));
-    }
-    
-    private Product createTestProduct(String name, String price, String sku) {
-        Product product = new Product();
-        product.setName(name);
-        product.setPrice(new BigDecimal(price));
-        product.setQuantity(5);
-        product.setSku(sku);
-        product.setContactEmail("test@example.com");
-        return product;
-    }
-}
-```
-
-### Step 5.7: Run Service Tests
-
-```bash
-# Run service unit tests
-./gradlew test --tests ProductServiceTest
-
-# Run service integration tests
-./gradlew test --tests ProductServiceIntegrationTest
-
-# Run all tests
-./gradlew test
-
-# Run with service demonstrations
-./gradlew bootRun --args='--spring.profiles.active=demo'
-```
-
-**Key Learning Points:**
-- **@Transactional**: Method-level transaction management with different propagation and isolation levels
-- **Service Layer Pattern**: Business logic encapsulation and separation from controllers
-- **Exception Handling**: Domain-specific exceptions for better error communication
-- **Transaction Isolation**: REPEATABLE_READ for stock operations to prevent race conditions
-- **Batch Operations**: Demonstrating transaction boundaries with multiple operations
-- **Dependency Injection**: Constructor-based injection of repositories
-- **Logging**: Structured logging for monitoring and debugging
-- **Validation**: Business rule validation separate from bean validation
+**Key Features:**
+- **Class-Level @Transactional(readOnly = true)** - Default for read operations
+- **Method-Level @Transactional** - Write operations explicitly marked
+- **Returns DTOs** - Never expose entities directly to controllers
+- **Lombok Annotations** - @RequiredArgsConstructor for constructor injection, @Slf4j for logging
+- **No Interfaces** - Simpler, more maintainable for most applications
 
 [Back to Table of Contents](#table-of-contents)
 
+---
+
 ## Lab 6: Create REST Controller with Full CRUD Operations
 
-**Objective**: Build a complete REST API with proper HTTP semantics, validation integration, and comprehensive testing.
+**Objective**: Implement a RESTful controller with proper HTTP semantics and status codes.
 
-### Step 6.1: Create DTOs for Request/Response
-
-First, create Data Transfer Objects to separate API contracts from internal entities:
-
-Create `src/main/java/com/kousenit/shopping/dto/ProductRequest.java`:
-
-```java
-package com.kousenit.shopping.dto;
-
-import jakarta.validation.constraints.*;
-import java.math.BigDecimal;
-
-public record ProductRequest(
-    @NotBlank(message = "Product name is required")
-    @Size(min = 3, max = 100, message = "Product name must be between 3 and 100 characters")
-    String name,
-    
-    @DecimalMin(value = "0.01", message = "Price must be greater than 0")
-    @DecimalMax(value = "999999.99", message = "Price must be less than 1,000,000")
-    @NotNull(message = "Price is required")
-    BigDecimal price,
-    
-    @Size(max = 500, message = "Description cannot exceed 500 characters")
-    String description,
-    
-    @PositiveOrZero(message = "Quantity must be greater than or equal to zero")
-    @NotNull(message = "Quantity is required")
-    Integer quantity,
-    
-    @NotBlank(message = "SKU is required")
-    @Pattern(regexp = "^[A-Z]{3}-[0-9]{6}$", 
-             message = "SKU must follow the pattern: 3 uppercase letters, hyphen, 6 digits (e.g., ABC-123456)")
-    String sku,
-    
-    @Email(message = "Contact email must be a valid email address")
-    String contactEmail
-) {}
-```
-
-Create `src/main/java/com/kousenit/shopping/dto/ProductResponse.java`:
-
-```java
-package com.kousenit.shopping.dto;
-
-import com.kousenit.shopping.entities.Product;
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-
-public record ProductResponse(
-    Long id,
-    String name,
-    BigDecimal price,
-    String description,
-    Integer quantity,
-    String sku,
-    String contactEmail,
-    LocalDateTime createdAt,
-    LocalDateTime updatedAt
-) {
-    public static ProductResponse from(Product product) {
-        return new ProductResponse(
-            product.getId(),
-            product.getName(),
-            product.getPrice(),
-            product.getDescription(),
-            product.getQuantity(),
-            product.getSku(),
-            product.getContactEmail(),
-            null, // Add timestamps to Product entity if needed
-            null
-        );
-    }
-}
-```
-
-Create `src/main/java/com/kousenit/shopping/dto/StockUpdateRequest.java`:
-
-```java
-package com.kousenit.shopping.dto;
-
-import jakarta.validation.constraints.PositiveOrZero;
-import jakarta.validation.constraints.NotNull;
-
-public record StockUpdateRequest(
-    @NotNull(message = "Quantity is required")
-    @PositiveOrZero(message = "Quantity must be greater than or equal to zero")
-    Integer quantity
-) {}
-```
-
-Create `src/main/java/com/kousenit/shopping/dto/PriceUpdateRequest.java`:
-
-```java
-package com.kousenit.shopping.dto;
-
-import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.NotNull;
-import java.math.BigDecimal;
-
-public record PriceUpdateRequest(
-    @NotNull(message = "Price multiplier is required")
-    @DecimalMin(value = "0.01", message = "Price multiplier must be positive")
-    BigDecimal priceMultiplier
-) {}
-```
-
-### Step 6.2: Create the REST Controller
+### Step 6.1: Create ProductRestController
 
 Create `src/main/java/com/kousenit/shopping/controllers/ProductRestController.java`:
 
 ```java
 package com.kousenit.shopping.controllers;
 
-import com.kousenit.shopping.dto.*;
-import com.kousenit.shopping.entities.Product;
+import com.kousenit.shopping.dto.ProductRequest;
+import com.kousenit.shopping.dto.ProductResponse;
+import com.kousenit.shopping.dto.StockUpdateRequest;
 import com.kousenit.shopping.services.ProductService;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Min;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
-import org.springframework.http.HttpStatus;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
-import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
@@ -2479,996 +1044,136 @@ import java.math.BigDecimal;
 import java.net.URI;
 import java.util.List;
 
+@SuppressWarnings("LoggingSimilarMessage")
 @RestController
 @RequestMapping("/api/v1/products")
-@Validated
-@CrossOrigin(origins = "*") // For development only
+@RequiredArgsConstructor
+@Slf4j
 public class ProductRestController {
-    
-    private static final Logger logger = LoggerFactory.getLogger(ProductRestController.class);
-    
+
     private final ProductService productService;
-    
-    @Autowired
-    public ProductRestController(ProductService productService) {
-        this.productService = productService;
+
+    @GetMapping("/{id}")
+    public ResponseEntity<ProductResponse> getProduct(@PathVariable Long id) {
+        log.info("GET /api/v1/products/{}", id);
+        ProductResponse product = productService.getProductById(id);
+        return ResponseEntity.ok(product);
     }
-    
-    // GET /api/v1/products - Get all products with pagination
+
     @GetMapping
     public ResponseEntity<Page<ProductResponse>> getAllProducts(
-            @RequestParam(defaultValue = "0") @Min(0) int page,
-            @RequestParam(defaultValue = "20") @Min(1) int size,
-            @RequestParam(defaultValue = "id") String sortBy,
-            @RequestParam(defaultValue = "asc") String sortDirection) {
-        
-        log.debug("Fetching products: page={}, size={}, sortBy={}, direction={}", 
-                    page, size, sortBy, sortDirection);
-        
-        Sort.Direction direction = Sort.Direction.fromString(sortDirection);
-        Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
-        
-        Page<Product> products = productService.getAllProducts(pageable);
-        Page<ProductResponse> response = products.map(ProductResponse::from);
-        
-        return ResponseEntity.ok(response);
+            @PageableDefault(size = 20, sort = "name", direction = Sort.Direction.ASC) Pageable pageable) {
+        log.info("GET /api/v1/products - page: {}, size: {}", pageable.getPageNumber(), pageable.getPageSize());
+        Page<ProductResponse> products = productService.getAllProducts(pageable);
+        return ResponseEntity.ok(products);
     }
-    
-    // GET /api/v1/products/{id} - Get product by ID
-    @GetMapping("/{id}")
-    public ResponseEntity<ProductResponse> getProductById(@PathVariable Long id) {
-        log.debug("Fetching product with ID: {}", id);
-        
-        return productService.getProductById(id)
-            .map(ProductResponse::from)
-            .map(ResponseEntity::ok)
-            .orElse(ResponseEntity.notFound().build());
-    }
-    
-    // POST /api/v1/products - Create new product
-    @PostMapping
-    public ResponseEntity<ProductResponse> createProduct(@Valid @RequestBody ProductRequest request) {
-        log.info("Creating new product: {}", request.name());
-        
-        Product product = mapToEntity(request);
-        Product created = productService.createProduct(product);
-        ProductResponse response = ProductResponse.from(created);
-        
-        URI location = ServletUriComponentsBuilder
-            .fromCurrentRequest()
-            .path("/{id}")
-            .buildAndExpand(created.getId())
-            .toUri();
-        
-        return ResponseEntity.created(location).body(response);
-    }
-    
-    // PUT /api/v1/products/{id} - Update entire product
-    @PutMapping("/{id}")
-    public ResponseEntity<ProductResponse> updateProduct(
-            @PathVariable Long id, 
-            @Valid @RequestBody ProductRequest request) {
-        
-        log.info("Updating product with ID: {}", id);
-        
-        Product updates = mapToEntity(request);
-        Product updated = productService.updateProduct(id, updates);
-        ProductResponse response = ProductResponse.from(updated);
-        
-        return ResponseEntity.ok(response);
-    }
-    
-    // PATCH /api/v1/products/{id} - Partial update
-    @PatchMapping("/{id}")
-    public ResponseEntity<ProductResponse> partialUpdateProduct(
-            @PathVariable Long id, 
-            @RequestBody ProductRequest request) {
-        
-        log.info("Partially updating product with ID: {}", id);
-        
-        Product updates = mapToEntityPartial(request);
-        Product updated = productService.updateProduct(id, updates);
-        ProductResponse response = ProductResponse.from(updated);
-        
-        return ResponseEntity.ok(response);
-    }
-    
-    // DELETE /api/v1/products/{id} - Delete product
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteProduct(@PathVariable Long id) {
-        log.info("Deleting product with ID: {}", id);
-        
-        productService.deleteProduct(id);
-        return ResponseEntity.noContent().build();
-    }
-    
-    // GET /api/v1/products/search - Search products by name
+
     @GetMapping("/search")
-    public ResponseEntity<List<ProductResponse>> searchProducts(
-            @RequestParam String name) {
-        
-        log.debug("Searching products by name: {}", name);
-        
-        List<Product> products = productService.searchProductsByName(name);
-        List<ProductResponse> response = products.stream()
-            .map(ProductResponse::from)
-            .toList();
-        
-        return ResponseEntity.ok(response);
+    public ResponseEntity<List<ProductResponse>> searchProducts(@RequestParam String name) {
+        log.info("GET /api/v1/products/search?name={}", name);
+        List<ProductResponse> products = productService.searchProductsByName(name);
+        return ResponseEntity.ok(products);
     }
-    
-    // GET /api/v1/products/price-range - Get products in price range
+
     @GetMapping("/price-range")
     public ResponseEntity<List<ProductResponse>> getProductsByPriceRange(
             @RequestParam BigDecimal minPrice,
             @RequestParam BigDecimal maxPrice) {
-        
-        log.debug("Fetching products in price range: {} - {}", minPrice, maxPrice);
-        
-        List<Product> products = productService.getProductsByPriceRange(minPrice, maxPrice);
-        List<ProductResponse> response = products.stream()
-            .map(ProductResponse::from)
-            .toList();
-        
-        return ResponseEntity.ok(response);
+        log.info("GET /api/v1/products/price-range?minPrice={}&maxPrice={}", minPrice, maxPrice);
+        List<ProductResponse> products = productService.getProductsByPriceRange(minPrice, maxPrice);
+        return ResponseEntity.ok(products);
     }
-    
-    // GET /api/v1/products/under-price - Get products under price
-    @GetMapping("/under-price")
-    public ResponseEntity<List<ProductResponse>> getProductsUnderPrice(
-            @RequestParam BigDecimal maxPrice) {
-        
-        log.debug("Fetching products under price: {}", maxPrice);
-        
-        List<Product> products = productService.getProductsUnderPrice(maxPrice);
-        List<ProductResponse> response = products.stream()
-            .map(ProductResponse::from)
-            .toList();
-        
-        return ResponseEntity.ok(response);
+
+    @PostMapping
+    public ResponseEntity<ProductResponse> createProduct(@Valid @RequestBody ProductRequest request) {
+        log.info("POST /api/v1/products - Creating product with SKU: {}", request.sku());
+        ProductResponse product = productService.createProduct(request);
+
+        URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+            .path("/{id}")
+            .buildAndExpand(product.id())
+            .toUri();
+
+        return ResponseEntity.created(location).body(product);
     }
-    
-    // GET /api/v1/products/most-expensive - Get most expensive product
-    @GetMapping("/most-expensive")
-    public ResponseEntity<ProductResponse> getMostExpensiveProduct() {
-        log.debug("Fetching most expensive product");
-        
-        return productService.getMostExpensiveProduct()
-            .map(ProductResponse::from)
-            .map(ResponseEntity::ok)
-            .orElse(ResponseEntity.notFound().build());
+
+    @PutMapping("/{id}")
+    public ResponseEntity<ProductResponse> updateProduct(
+            @PathVariable Long id,
+            @Valid @RequestBody ProductRequest request) {
+        log.info("PUT /api/v1/products/{} - Updating product", id);
+        ProductResponse product = productService.updateProduct(id, request);
+        return ResponseEntity.ok(product);
     }
-    
-    // POST /api/v1/products/batch - Create multiple products
-    @PostMapping("/batch")
-    public ResponseEntity<List<ProductResponse>> createProducts(
-            @Valid @RequestBody List<ProductRequest> requests) {
-        
-        log.info("Creating {} products in batch", requests.size());
-        
-        List<Product> products = requests.stream()
-            .map(this::mapToEntity)
-            .toList();
-        
-        List<Product> created = productService.createProducts(products);
-        List<ProductResponse> response = created.stream()
-            .map(ProductResponse::from)
-            .toList();
-        
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteProduct(@PathVariable Long id) {
+        log.info("DELETE /api/v1/products/{}", id);
+        productService.deleteProduct(id);
+        return ResponseEntity.noContent().build();
     }
-    
-    // PUT /api/v1/products/{id}/stock - Update stock quantity
+
     @PutMapping("/{id}/stock")
     public ResponseEntity<ProductResponse> updateStock(
             @PathVariable Long id,
             @Valid @RequestBody StockUpdateRequest request) {
-        
-        log.info("Updating stock for product {}: {}", id, request.quantity());
-        
-        Product updated = productService.updateStock(id, request.quantity());
-        ProductResponse response = ProductResponse.from(updated);
-        
-        return ResponseEntity.ok(response);
+        log.info("PUT /api/v1/products/{}/stock - New quantity: {}", id, request.quantity());
+        ProductResponse product = productService.updateStock(id, request.quantity());
+        return ResponseEntity.ok(product);
     }
-    
-    // POST /api/v1/products/{id}/reserve-stock - Reserve stock
+
     @PostMapping("/{id}/reserve-stock")
     public ResponseEntity<ProductResponse> reserveStock(
             @PathVariable Long id,
             @Valid @RequestBody StockUpdateRequest request) {
-        
-        log.info("Reserving stock for product {}: {}", id, request.quantity());
-        
-        Product updated = productService.reserveStock(id, request.quantity());
-        ProductResponse response = ProductResponse.from(updated);
-        
-        return ResponseEntity.ok(response);
+        log.info("POST /api/v1/products/{}/reserve-stock - Quantity: {}", id, request.quantity());
+        ProductResponse product = productService.reserveStock(id, request.quantity());
+        return ResponseEntity.ok(product);
     }
-    
-    // POST /api/v1/products/{id}/release-stock - Release reserved stock
-    @PostMapping("/{id}/release-stock")
-    public ResponseEntity<ProductResponse> releaseStock(
+
+    @PostMapping("/{id}/add-stock")
+    public ResponseEntity<ProductResponse> addStock(
             @PathVariable Long id,
             @Valid @RequestBody StockUpdateRequest request) {
-        
-        log.info("Releasing stock for product {}: {}", id, request.quantity());
-        
-        Product updated = productService.releaseStock(id, request.quantity());
-        ProductResponse response = ProductResponse.from(updated);
-        
-        return ResponseEntity.ok(response);
+        log.info("POST /api/v1/products/{}/add-stock - Quantity: {}", id, request.quantity());
+        ProductResponse product = productService.addStock(id, request.quantity());
+        return ResponseEntity.ok(product);
     }
-    
-    // GET /api/v1/products/{id}/stock-check - Check if product is in stock
-    @GetMapping("/{id}/stock-check")
-    public ResponseEntity<Boolean> checkStock(
-            @PathVariable Long id,
-            @RequestParam int requiredQuantity) {
-        
-        log.debug("Checking stock for product {}: required {}", id, requiredQuantity);
-        
-        boolean inStock = productService.isProductInStock(id, requiredQuantity);
-        return ResponseEntity.ok(inStock);
+
+    @GetMapping("/low-stock")
+    public ResponseEntity<List<ProductResponse>> getLowStockProducts(
+            @RequestParam(defaultValue = "10") Integer threshold) {
+        log.info("GET /api/v1/products/low-stock?threshold={}", threshold);
+        List<ProductResponse> products = productService.getLowStockProducts(threshold);
+        return ResponseEntity.ok(products);
     }
-    
-    // PUT /api/v1/products/batch/prices - Update prices for multiple products
-    @PutMapping("/batch/prices")
-    public ResponseEntity<Void> updatePrices(
-            @RequestParam List<Long> productIds,
-            @Valid @RequestBody PriceUpdateRequest request) {
-        
-        log.info("Updating prices for {} products with multiplier: {}", 
-                   productIds.size(), request.priceMultiplier());
-        
-        productService.updatePrices(productIds, request.priceMultiplier());
-        return ResponseEntity.noContent().build();
-    }
-    
-    // DELETE /api/v1/products/batch - Delete multiple products
-    @DeleteMapping("/batch")
-    public ResponseEntity<Void> deleteProducts(@RequestParam List<Long> productIds) {
-        log.info("Deleting {} products", productIds.size());
-        
-        productService.deleteProducts(productIds);
-        return ResponseEntity.noContent().build();
-    }
-    
-    // Mapping helper methods
-    private Product mapToEntity(ProductRequest request) {
-        Product product = new Product();
-        product.setName(request.name());
-        product.setPrice(request.price());
-        product.setDescription(request.description());
-        product.setQuantity(request.quantity() != null ? request.quantity() : 0);
-        product.setSku(request.sku());
-        product.setContactEmail(request.contactEmail());
-        return product;
-    }
-    
-    private Product mapToEntityPartial(ProductRequest request) {
-        Product product = new Product();
-        // Only set non-null values for partial updates
-        if (request.name() != null) product.setName(request.name());
-        if (request.price() != null) product.setPrice(request.price());
-        if (request.description() != null) product.setDescription(request.description());
-        if (request.quantity() != null) product.setQuantity(request.quantity());
-        if (request.sku() != null) product.setSku(request.sku());
-        if (request.contactEmail() != null) product.setContactEmail(request.contactEmail());
-        return product;
+
+    @GetMapping("/expensive")
+    public ResponseEntity<List<ProductResponse>> getExpensiveProducts(
+            @RequestParam(defaultValue = "100.00") BigDecimal minPrice) {
+        log.info("GET /api/v1/products/expensive?minPrice={}", minPrice);
+        List<ProductResponse> products = productService.getExpensiveProducts(minPrice);
+        return ResponseEntity.ok(products);
     }
 }
 ```
 
-### Step 6.3: Create Controller Tests
-
-Create `src/test/java/com/kousenit/shopping/controllers/ProductRestControllerTest.java`:
-
-```java
-package com.kousenit.shopping.controllers;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kousenit.shopping.dto.ProductRequest;
-import com.kousenit.shopping.dto.StockUpdateRequest;
-import com.kousenit.shopping.entities.Product;
-import com.kousenit.shopping.exceptions.ProductNotFoundException;
-import com.kousenit.shopping.services.ProductService;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.Pageable;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-
-import java.math.BigDecimal;
-import java.util.List;
-import java.util.Optional;
-
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-
-@WebMvcTest(ProductRestController.class)
-class ProductRestControllerTest {
-    
-    @Autowired
-    private MockMvc mockMvc;
-    
-    @Autowired
-    private ObjectMapper objectMapper;
-    
-    @MockitoBean
-    private ProductService productService;
-    
-    private Product sampleProduct;
-    private ProductRequest sampleRequest;
-    
-    @BeforeEach
-    void setUp() {
-        sampleProduct = new Product();
-        sampleProduct.setId(1L);
-        sampleProduct.setName("Test Product");
-        sampleProduct.setPrice(new BigDecimal("99.99"));
-        sampleProduct.setDescription("A test product");
-        sampleProduct.setQuantity(10);
-        sampleProduct.setSku("TST-123456");
-        sampleProduct.setContactEmail("test@example.com");
-        
-        sampleRequest = new ProductRequest(
-            "Test Product",
-            new BigDecimal("99.99"),
-            "A test product",
-            10,
-            "TST-123456",
-            "test@example.com"
-        );
-    }
-    
-    @Test
-    void testGetAllProducts() throws Exception {
-        // Given
-        Page<Product> productPage = new PageImpl<>(List.of(sampleProduct));
-        when(productService.getAllProducts(any(Pageable.class))).thenReturn(productPage);
-        
-        // When/Then
-        mockMvc.perform(get("/api/v1/products"))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-            .andExpect(jsonPath("$.content").isArray())
-            .andExpect(jsonPath("$.content[0].id").value(1))
-            .andExpect(jsonPath("$.content[0].name").value("Test Product"))
-            .andExpect(jsonPath("$.content[0].price").value(99.99));
-    }
-    
-    @Test
-    void testGetProductById() throws Exception {
-        // Given
-        when(productService.getProductById(1L)).thenReturn(Optional.of(sampleProduct));
-        
-        // When/Then
-        mockMvc.perform(get("/api/v1/products/1"))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-            .andExpect(jsonPath("$.id").value(1))
-            .andExpect(jsonPath("$.name").value("Test Product"))
-            .andExpect(jsonPath("$.price").value(99.99));
-    }
-    
-    @Test
-    void testGetProductByIdNotFound() throws Exception {
-        // Given
-        when(productService.getProductById(999L)).thenReturn(Optional.empty());
-        
-        // When/Then
-        mockMvc.perform(get("/api/v1/products/999"))
-            .andExpect(status().isNotFound());
-    }
-    
-    @Test
-    void testCreateProduct() throws Exception {
-        // Given
-        when(productService.createProduct(any(Product.class))).thenReturn(sampleProduct);
-        
-        // When/Then
-        mockMvc.perform(post("/api/v1/products")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(sampleRequest)))
-            .andExpect(status().isCreated())
-            .andExpect(header().exists("Location"))
-            .andExpect(jsonPath("$.id").value(1))
-            .andExpect(jsonPath("$.name").value("Test Product"));
-        
-        verify(productService).createProduct(any(Product.class));
-    }
-    
-    @Test
-    void testCreateProductWithValidationErrors() throws Exception {
-        // Given - invalid request with blank name
-        ProductRequest invalidRequest = new ProductRequest(
-            "", // blank name
-            new BigDecimal("99.99"),
-            "A test product",
-            10,
-            "TST-123456",
-            "test@example.com"
-        );
-        
-        // When/Then
-        mockMvc.perform(post("/api/v1/products")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(invalidRequest)))
-            .andExpect(status().isBadRequest());
-        
-        verify(productService, never()).createProduct(any());
-    }
-    
-    @Test
-    void testUpdateProduct() throws Exception {
-        // Given
-        when(productService.updateProduct(eq(1L), any(Product.class))).thenReturn(sampleProduct);
-        
-        // When/Then
-        mockMvc.perform(put("/api/v1/products/1")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(sampleRequest)))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.id").value(1))
-            .andExpect(jsonPath("$.name").value("Test Product"));
-        
-        verify(productService).updateProduct(eq(1L), any(Product.class));
-    }
-    
-    @Test
-    void testUpdateProductNotFound() throws Exception {
-        // Given
-        when(productService.updateProduct(eq(999L), any(Product.class)))
-            .thenThrow(new ProductNotFoundException(999L));
-        
-        // When/Then
-        mockMvc.perform(put("/api/v1/products/999")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(sampleRequest)))
-            .andExpect(status().isNotFound());
-    }
-    
-    @Test
-    void testDeleteProduct() throws Exception {
-        // Given
-        doNothing().when(productService).deleteProduct(1L);
-        
-        // When/Then
-        mockMvc.perform(delete("/api/v1/products/1"))
-            .andExpect(status().isNoContent());
-        
-        verify(productService).deleteProduct(1L);
-    }
-    
-    @Test
-    void testDeleteProductNotFound() throws Exception {
-        // Given
-        doThrow(new ProductNotFoundException(999L)).when(productService).deleteProduct(999L);
-        
-        // When/Then
-        mockMvc.perform(delete("/api/v1/products/999"))
-            .andExpect(status().isNotFound());
-    }
-    
-    @Test
-    void testSearchProducts() throws Exception {
-        // Given
-        when(productService.searchProductsByName("Test")).thenReturn(List.of(sampleProduct));
-        
-        // When/Then
-        mockMvc.perform(get("/api/v1/products/search?name=Test"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$").isArray())
-            .andExpect(jsonPath("$[0].name").value("Test Product"));
-    }
-    
-    @Test
-    void testGetProductsByPriceRange() throws Exception {
-        // Given
-        when(productService.getProductsByPriceRange(any(BigDecimal.class), any(BigDecimal.class)))
-            .thenReturn(List.of(sampleProduct));
-        
-        // When/Then
-        mockMvc.perform(get("/api/v1/products/price-range?minPrice=50.00&maxPrice=150.00"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$").isArray())
-            .andExpect(jsonPath("$[0].price").value(99.99));
-    }
-    
-    @Test
-    void testUpdateStock() throws Exception {
-        // Given
-        StockUpdateRequest stockRequest = new StockUpdateRequest(20);
-        sampleProduct.setQuantity(20);
-        when(productService.updateStock(1L, 20)).thenReturn(sampleProduct);
-        
-        // When/Then
-        mockMvc.perform(put("/api/v1/products/1/stock")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(stockRequest)))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.quantity").value(20));
-    }
-    
-    @Test
-    void testReserveStock() throws Exception {
-        // Given
-        StockUpdateRequest stockRequest = new StockUpdateRequest(5);
-        sampleProduct.setQuantity(5);
-        when(productService.reserveStock(1L, 5)).thenReturn(sampleProduct);
-        
-        // When/Then
-        mockMvc.perform(post("/api/v1/products/1/reserve-stock")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(stockRequest)))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.quantity").value(5));
-    }
-    
-    @Test
-    void testCheckStock() throws Exception {
-        // Given
-        when(productService.isProductInStock(1L, 5)).thenReturn(true);
-        
-        // When/Then
-        mockMvc.perform(get("/api/v1/products/1/stock-check?requiredQuantity=5"))
-            .andExpect(status().isOk())
-            .andExpect(content().string("true"));
-    }
-    
-    @Test
-    void testCreateProductsBatch() throws Exception {
-        // Given
-        List<ProductRequest> requests = List.of(sampleRequest);
-        when(productService.createProducts(any())).thenReturn(List.of(sampleProduct));
-        
-        // When/Then
-        mockMvc.perform(post("/api/v1/products/batch")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(requests)))
-            .andExpect(status().isCreated())
-            .andExpect(jsonPath("$").isArray())
-            .andExpect(jsonPath("$[0].name").value("Test Product"));
-    }
-    
-    @Test
-    void testGetMostExpensiveProduct() throws Exception {
-        // Given
-        when(productService.getMostExpensiveProduct()).thenReturn(Optional.of(sampleProduct));
-        
-        // When/Then
-        mockMvc.perform(get("/api/v1/products/most-expensive"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.name").value("Test Product"));
-    }
-    
-    @Test
-    void testGetMostExpensiveProductNotFound() throws Exception {
-        // Given
-        when(productService.getMostExpensiveProduct()).thenReturn(Optional.empty());
-        
-        // When/Then
-        mockMvc.perform(get("/api/v1/products/most-expensive"))
-            .andExpect(status().isNotFound());
-    }
-}
-```
-
-### Step 6.4: Integration Tests
-
-Create `src/test/java/com/kousenit/shopping/controllers/ProductRestControllerIntegrationTest.java`:
-
-```java
-package com.kousenit.shopping.controllers;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kousenit.shopping.dto.ProductRequest;
-import com.kousenit.shopping.dto.StockUpdateRequest;
-import com.kousenit.shopping.entities.Product;
-import com.kousenit.shopping.repositories.ProductRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureWebMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.MediaType;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.math.BigDecimal;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-
-@SpringBootTest
-@AutoConfigureWebMvc
-@ActiveProfiles("test")
-@Transactional
-class ProductRestControllerIntegrationTest {
-    
-    @Autowired
-    private MockMvc mockMvc;
-    
-    @Autowired
-    private ObjectMapper objectMapper;
-    
-    @Autowired
-    private ProductRepository productRepository;
-    
-    private ProductRequest sampleRequest;
-    
-    @BeforeEach
-    void setUp() {
-        productRepository.deleteAll();
-        
-        sampleRequest = new ProductRequest(
-            "Integration Test Product",
-            new BigDecimal("199.99"),
-            "An integration test product",
-            15,
-            "INT-654321",
-            "integration@test.com"
-        );
-    }
-    
-    @Test
-    void testCompleteProductLifecycle() throws Exception {
-        // Create product
-        String createResponse = mockMvc.perform(post("/api/v1/products")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(sampleRequest)))
-            .andExpect(status().isCreated())
-            .andExpect(header().exists("Location"))
-            .andExpect(jsonPath("$.name").value("Integration Test Product"))
-            .andExpect(jsonPath("$.price").value(199.99))
-            .andReturn().getResponse().getContentAsString();
-        
-        // Extract ID from response
-        Long productId = objectMapper.readTree(createResponse).get("id").asLong();
-        
-        // Get product
-        mockMvc.perform(get("/api/v1/products/" + productId))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.name").value("Integration Test Product"));
-        
-        // Update product
-        ProductRequest updateRequest = new ProductRequest(
-            "Updated Integration Product",
-            new BigDecimal("249.99"),
-            "Updated description",
-            20,
-            "UPD-654321",
-            "updated@test.com"
-        );
-        
-        mockMvc.perform(put("/api/v1/products/" + productId)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(updateRequest)))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.name").value("Updated Integration Product"))
-            .andExpect(jsonPath("$.price").value(249.99));
-        
-        // Delete product
-        mockMvc.perform(delete("/api/v1/products/" + productId))
-            .andExpect(status().isNoContent());
-        
-        // Verify deletion
-        mockMvc.perform(get("/api/v1/products/" + productId))
-            .andExpect(status().isNotFound());
-    }
-    
-    @Test
-    void testStockManagement() throws Exception {
-        // Create product
-        String createResponse = mockMvc.perform(post("/api/v1/products")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(sampleRequest)))
-            .andExpect(status().isCreated())
-            .andReturn().getResponse().getContentAsString();
-        
-        Long productId = objectMapper.readTree(createResponse).get("id").asLong();
-        
-        // Update stock
-        StockUpdateRequest stockUpdate = new StockUpdateRequest(25);
-        mockMvc.perform(put("/api/v1/products/" + productId + "/stock")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(stockUpdate)))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.quantity").value(25));
-        
-        // Reserve stock
-        StockUpdateRequest reserveRequest = new StockUpdateRequest(10);
-        mockMvc.perform(post("/api/v1/products/" + productId + "/reserve-stock")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(reserveRequest)))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.quantity").value(15));
-        
-        // Check stock
-        mockMvc.perform(get("/api/v1/products/" + productId + "/stock-check?requiredQuantity=10"))
-            .andExpect(status().isOk())
-            .andExpect(content().string("true"));
-        
-        mockMvc.perform(get("/api/v1/products/" + productId + "/stock-check?requiredQuantity=20"))
-            .andExpect(status().isOk())
-            .andExpect(content().string("false"));
-        
-        // Release stock
-        StockUpdateRequest releaseRequest = new StockUpdateRequest(5);
-        mockMvc.perform(post("/api/v1/products/" + productId + "/release-stock")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(releaseRequest)))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.quantity").value(20));
-    }
-    
-    @Test
-    void testSearchAndFilter() throws Exception {
-        // Create test products
-        ProductRequest product1 = new ProductRequest("Apple iPhone", new BigDecimal("999.99"), 
-                                                    "Smartphone", 10, "APL-001", "sales@apple.com");
-        ProductRequest product2 = new ProductRequest("Samsung Galaxy", new BigDecimal("799.99"), 
-                                                    "Smartphone", 15, "SAM-001", "sales@samsung.com");
-        ProductRequest product3 = new ProductRequest("Apple iPad", new BigDecimal("599.99"), 
-                                                    "Tablet", 8, "APL-002", "sales@apple.com");
-        
-        mockMvc.perform(post("/api/v1/products")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(product1)))
-            .andExpect(status().isCreated());
-        
-        mockMvc.perform(post("/api/v1/products")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(product2)))
-            .andExpect(status().isCreated());
-        
-        mockMvc.perform(post("/api/v1/products")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(product3)))
-            .andExpect(status().isCreated());
-        
-        // Search by name
-        mockMvc.perform(get("/api/v1/products/search?name=Apple"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$").isArray())
-            .andExpect(jsonPath("$.length()").value(2));
-        
-        // Filter by price range
-        mockMvc.perform(get("/api/v1/products/price-range?minPrice=600&maxPrice=900"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$").isArray())
-            .andExpect(jsonPath("$.length()").value(2));
-        
-        // Get products under price
-        mockMvc.perform(get("/api/v1/products/under-price?maxPrice=800"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$").isArray())
-            .andExpect(jsonPath("$.length()").value(2));
-        
-        // Get most expensive
-        mockMvc.perform(get("/api/v1/products/most-expensive"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.name").value("Apple iPhone"));
-    }
-    
-    @Test
-    void testPaginationAndSorting() throws Exception {
-        // Create multiple products for pagination testing
-        for (int i = 1; i <= 25; i++) {
-            ProductRequest product = new ProductRequest(
-                "Product " + i,
-                new BigDecimal(String.valueOf(100 + i)),
-                "Description " + i,
-                i,
-                String.format("PRD-%06d", i),
-                "test" + i + "@example.com"
-            );
-            
-            mockMvc.perform(post("/api/v1/products")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(product)))
-                .andExpect(status().isCreated());
-        }
-        
-        // Test pagination
-        mockMvc.perform(get("/api/v1/products?page=0&size=10"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.content").isArray())
-            .andExpect(jsonPath("$.content.length()").value(10))
-            .andExpect(jsonPath("$.totalElements").value(25))
-            .andExpect(jsonPath("$.totalPages").value(3));
-        
-        // Test sorting by name
-        mockMvc.perform(get("/api/v1/products?page=0&size=5&sortBy=name&sortDirection=desc"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.content[0].name").value("Product 9"));
-        
-        // Test sorting by price
-        mockMvc.perform(get("/api/v1/products?page=0&size=5&sortBy=price&sortDirection=asc"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.content[0].price").value(101.0));
-    }
-}
-```
-
-### Step 6.5: Run Controller Tests
-
-```bash
-# Run controller unit tests
-./gradlew test --tests ProductRestControllerTest
-
-# Run controller integration tests
-./gradlew test --tests ProductRestControllerIntegrationTest
-
-# Run all tests
-./gradlew test
-
-# Start the application to test REST API manually
-./gradlew bootRun
-```
-
-### Step 6.6: Manual API Testing
-
-With the application running, you can test the API with curl or Postman:
-
-```bash
-# Get all products with pagination
-curl "http://localhost:8080/api/v1/products?page=0&size=5"
-
-# Get product by ID
-curl "http://localhost:8080/api/v1/products/1"
-
-# Create a new product
-curl -X POST "http://localhost:8080/api/v1/products" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "name": "Test Product",
-       "price": 99.99,
-       "description": "A test product",
-       "quantity": 10,
-       "sku": "TST-123456",
-       "contactEmail": "test@example.com"
-     }'
-
-# Search products
-curl "http://localhost:8080/api/v1/products/search?name=MacBook"
-
-# Get products in price range
-curl "http://localhost:8080/api/v1/products/price-range?minPrice=100&maxPrice=500"
-
-# Update stock
-curl -X PUT "http://localhost:8080/api/v1/products/1/stock" \
-     -H "Content-Type: application/json" \
-     -d '{"quantity": 25}'
-
-# Reserve stock
-curl -X POST "http://localhost:8080/api/v1/products/1/reserve-stock" \
-     -H "Content-Type: application/json" \
-     -d '{"quantity": 5}'
-```
-
-**Key Learning Points:**
-- **REST API Design**: Proper HTTP methods, status codes, and resource naming
-- **DTO Pattern**: Separating API contracts from internal entities
-- **Validation Integration**: @Valid annotation with custom validation messages  
-- **ResponseEntity**: Control over HTTP responses and headers
-- **Pagination and Sorting**: Spring Data pagination support
-- **Exception Handling**: Automatic mapping of service exceptions to HTTP status codes
-- **MockMVC Testing**: Testing controllers without starting the full server
-- **Integration Testing**: End-to-end API testing with real database operations
+**Key Features:**
+- **Proper HTTP Status Codes** - 200 OK, 201 Created, 204 No Content
+- **Location Header** - Created resources return their URI
+- **Pagination Support** - @PageableDefault for sensible defaults
+- **@Valid** - Bean Validation triggers automatically
+- **ResponseEntity** - Full control over HTTP responses
 
 [Back to Table of Contents](#table-of-contents)
 
-## Lab 7: Add Global Exception Handling with @RestControllerAdvice
+---
 
-**Objective**: Implement centralized exception handling using @RestControllerAdvice with modern ProblemDetail responses for consistent error handling across the API.
+## Lab 7: Add Global Exception Handling with RFC 7807 ProblemDetail
 
-### Step 7.1: Create Error Response DTOs
+**Objective**: Implement centralized exception handling using Spring's RFC 7807 ProblemDetail support for standardized error responses.
 
-First, create DTOs for standardized error responses:
-
-Create `src/main/java/com/kousenit/shopping/dto/ApiError.java`:
-
-```java
-package com.kousenit.shopping.dto;
-
-import com.fasterxml.jackson.annotation.JsonFormat;
-import com.fasterxml.jackson.annotation.JsonInclude;
-import org.springframework.http.HttpStatus;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
-
-@JsonInclude(JsonInclude.Include.NON_NULL)
-public record ApiError(
-    HttpStatus status,
-    int statusCode,
-    String error,
-    String message,
-    String path,
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    LocalDateTime timestamp,
-    List<ValidationError> validationErrors,
-    Map<String, Object> details
-) {
-    
-    public static ApiError of(HttpStatus status, String message, String path) {
-        return new ApiError(
-            status,
-            status.value(),
-            status.getReasonPhrase(),
-            message,
-            path,
-            LocalDateTime.now(),
-            null,
-            null
-        );
-    }
-    
-    public static ApiError withValidationErrors(HttpStatus status, String message, 
-                                               String path, List<ValidationError> validationErrors) {
-        return new ApiError(
-            status,
-            status.value(),
-            status.getReasonPhrase(),
-            message,
-            path,
-            LocalDateTime.now(),
-            validationErrors,
-            null
-        );
-    }
-    
-    public static ApiError withDetails(HttpStatus status, String message, 
-                                      String path, Map<String, Object> details) {
-        return new ApiError(
-            status,
-            status.value(),
-            status.getReasonPhrase(),
-            message,
-            path,
-            LocalDateTime.now(),
-            null,
-            details
-        );
-    }
-}
-```
-
-Create `src/main/java/com/kousenit/shopping/dto/ValidationError.java`:
-
-```java
-package com.kousenit.shopping.dto;
-
-public record ValidationError(
-    String field,
-    Object rejectedValue,
-    String message,
-    String code
-) {
-    
-    public static ValidationError of(String field, Object rejectedValue, String message) {
-        return new ValidationError(field, rejectedValue, message, null);
-    }
-    
-    public static ValidationError of(String field, Object rejectedValue, String message, String code) {
-        return new ValidationError(field, rejectedValue, message, code);
-    }
-}
-```
-
-### Step 7.2: Create the Global Exception Handler
+### Step 7.1: Create GlobalExceptionHandler
 
 Create `src/main/java/com/kousenit/shopping/controllers/GlobalExceptionHandler.java`:
 
@@ -3500,48 +1205,43 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.net.URI;
 import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
     private static final String VALIDATION_FAILED = "Validation failed";
-    private static final String INVALID_REQUEST = "Invalid request";
-    
-    // Domain-specific exceptions
-    
+
     @ExceptionHandler(ProductNotFoundException.class)
     public ResponseEntity<ProblemDetail> handleProductNotFoundException(
             ProductNotFoundException ex, HttpServletRequest request) {
-        
-        log.warn("Product not found: {}", ex.getMessage());
-        
+
+        logger.warn("Product not found: {}", ex.getMessage());
+
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-            HttpStatus.NOT_FOUND, ex.getMessage());
+                HttpStatus.NOT_FOUND, ex.getMessage());
         problemDetail.setType(URI.create("https://api.shopping.com/problems/product-not-found"));
         problemDetail.setTitle("Product Not Found");
         problemDetail.setInstance(URI.create(request.getRequestURI()));
         problemDetail.setProperty("timestamp", LocalDateTime.now());
-        
+
         if (ex.getProductId() != null) {
             problemDetail.setProperty("productId", ex.getProductId());
         }
-        
+
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(problemDetail);
     }
-    
+
     @ExceptionHandler(InsufficientStockException.class)
     public ResponseEntity<ProblemDetail> handleInsufficientStockException(
             InsufficientStockException ex, HttpServletRequest request) {
-        
-        log.warn("Insufficient stock: {}", ex.getMessage());
-        
+
+        logger.warn("Insufficient stock: {}", ex.getMessage());
+
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-            HttpStatus.BAD_REQUEST, ex.getMessage());
+                HttpStatus.BAD_REQUEST, ex.getMessage());
         problemDetail.setType(URI.create("https://api.shopping.com/problems/insufficient-stock"));
         problemDetail.setTitle("Insufficient Stock");
         problemDetail.setInstance(URI.create(request.getRequestURI()));
@@ -3549,115 +1249,144 @@ public class GlobalExceptionHandler {
         problemDetail.setProperty("productId", ex.getProductId());
         problemDetail.setProperty("requestedQuantity", ex.getRequestedQuantity());
         problemDetail.setProperty("availableQuantity", ex.getAvailableQuantity());
-        
+
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
     }
-    
+
     @ExceptionHandler(ProductValidationException.class)
     public ResponseEntity<ProblemDetail> handleProductValidationException(
             ProductValidationException ex, HttpServletRequest request) {
-        
-        log.warn("Product validation error: {}", ex.getMessage());
-        
+
+        logger.warn("Product validation error: {}", ex.getMessage());
+
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-            HttpStatus.BAD_REQUEST, ex.getMessage());
+                HttpStatus.BAD_REQUEST, ex.getMessage());
         problemDetail.setType(URI.create("https://api.shopping.com/problems/validation-error"));
         problemDetail.setTitle("Validation Error");
         problemDetail.setInstance(URI.create(request.getRequestURI()));
         problemDetail.setProperty("timestamp", LocalDateTime.now());
-        
+
         if (ex.getField() != null) {
             problemDetail.setProperty("field", ex.getField());
             problemDetail.setProperty("rejectedValue", ex.getValue());
         }
-        
+
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
     }
-    
-    // Bean validation exceptions
-    
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiError> handleMethodArgumentNotValidException(
             MethodArgumentNotValidException ex, HttpServletRequest request) {
-        
-        log.warn("Validation failed for request: {}", ex.getMessage());
-        
+
+        logger.warn("Validation failed for request: {}", ex.getMessage());
+
         List<ValidationError> validationErrors = ex.getBindingResult()
-            .getFieldErrors()
-            .stream()
-            .map(this::mapFieldError)
-            .collect(Collectors.toList());
-        
-        // Add global errors if any
-        ex.getBindingResult().getGlobalErrors().forEach(error -> {
-            validationErrors.add(ValidationError.of(
-                error.getObjectName(),
-                null,
-                error.getDefaultMessage(),
-                error.getCode()
-            ));
-        });
-        
+                .getFieldErrors()
+                .stream()
+                .map(this::mapFieldError)
+                .collect(Collectors.toList());
+
+        ex.getBindingResult().getGlobalErrors().forEach(error ->
+                validationErrors.add(ValidationError.of(
+                        error.getObjectName(),
+                        null,
+                        error.getDefaultMessage(),
+                        error.getCode()
+                )));
+
         ApiError apiError = ApiError.withValidationErrors(
-            HttpStatus.BAD_REQUEST,
-            VALIDATION_FAILED,
-            request.getRequestURI(),
-            validationErrors
+                HttpStatus.BAD_REQUEST,
+                VALIDATION_FAILED,
+                request.getRequestURI(),
+                validationErrors
         );
-        
+
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(apiError);
     }
-    
+
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ApiError> handleConstraintViolationException(
             ConstraintViolationException ex, HttpServletRequest request) {
-        
-        log.warn("Constraint violation: {}", ex.getMessage());
-        
+
+        logger.warn("Constraint violation: {}", ex.getMessage());
+
         List<ValidationError> validationErrors = ex.getConstraintViolations()
-            .stream()
-            .map(this::mapConstraintViolation)
-            .collect(Collectors.toList());
-        
+                .stream()
+                .map(this::mapConstraintViolation)
+                .collect(Collectors.toList());
+
         ApiError apiError = ApiError.withValidationErrors(
-            HttpStatus.BAD_REQUEST,
-            VALIDATION_FAILED,
-            request.getRequestURI(),
-            validationErrors
+                HttpStatus.BAD_REQUEST,
+                VALIDATION_FAILED,
+                request.getRequestURI(),
+                validationErrors
         );
-        
+
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(apiError);
     }
-    
-    // Request processing exceptions
-    
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ProblemDetail> handleDataIntegrityViolationException(
+            DataIntegrityViolationException ex, HttpServletRequest request) {
+
+        logger.error("Data integrity violation: {}", ex.getMessage());
+
+        String message = "Data integrity violation. This operation conflicts with existing data constraints.";
+        String type = "https://api.shopping.com/problems/data-integrity";
+        String title = "Data Integrity Violation";
+
+        if (ex.getMessage() != null) {
+            if (ex.getMessage().contains("Unique index or primary key violation")) {
+                if (ex.getMessage().contains("IDX_PRODUCT_SKU") || ex.getMessage().contains("sku")) {
+                    message = "A product with this SKU already exists.";
+                    type = "https://api.shopping.com/problems/duplicate-sku";
+                    title = "Duplicate SKU";
+                } else {
+                    message = "A record with this information already exists.";
+                }
+            } else if (ex.getMessage().contains("constraint")) {
+                message = "This operation violates a data constraint.";
+            }
+        }
+
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.CONFLICT, message);
+        problemDetail.setType(URI.create(type));
+        problemDetail.setTitle(title);
+        problemDetail.setInstance(URI.create(request.getRequestURI()));
+        problemDetail.setProperty("timestamp", LocalDateTime.now());
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problemDetail);
+    }
+
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ProblemDetail> handleHttpMessageNotReadableException(
             HttpMessageNotReadableException ex, HttpServletRequest request) {
-        
-        log.warn("Malformed JSON request: {}", ex.getMessage());
-        
+
+        logger.warn("Malformed JSON request: {}", ex.getMessage());
+
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-            HttpStatus.BAD_REQUEST, "Malformed JSON request");
+                HttpStatus.BAD_REQUEST, "Malformed JSON request");
         problemDetail.setType(URI.create("https://api.shopping.com/problems/malformed-request"));
         problemDetail.setTitle("Malformed Request");
         problemDetail.setInstance(URI.create(request.getRequestURI()));
         problemDetail.setProperty("timestamp", LocalDateTime.now());
-        
+
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
     }
-    
+
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ProblemDetail> handleMethodArgumentTypeMismatchException(
             MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
-        
-        log.warn("Type mismatch for parameter '{}': {}", ex.getName(), ex.getMessage());
-        
+
+        logger.warn("Type mismatch for parameter '{}': {}", ex.getName(), ex.getMessage());
+
+        assert ex.getRequiredType() != null;
         String message = String.format("Invalid value '%s' for parameter '%s'. Expected type: %s",
-            ex.getValue(), ex.getName(), ex.getRequiredType().getSimpleName());
-        
+                ex.getValue(), ex.getName(), ex.getRequiredType().getSimpleName());
+
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-            HttpStatus.BAD_REQUEST, message);
+                HttpStatus.BAD_REQUEST, message);
         problemDetail.setType(URI.create("https://api.shopping.com/problems/type-mismatch"));
         problemDetail.setTitle("Type Mismatch");
         problemDetail.setInstance(URI.create(request.getRequestURI()));
@@ -3665,595 +1394,256 @@ public class GlobalExceptionHandler {
         problemDetail.setProperty("parameter", ex.getName());
         problemDetail.setProperty("rejectedValue", ex.getValue());
         problemDetail.setProperty("expectedType", ex.getRequiredType().getSimpleName());
-        
+
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
     }
-    
+
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public ResponseEntity<ProblemDetail> handleMissingServletRequestParameterException(
             MissingServletRequestParameterException ex, HttpServletRequest request) {
-        
-        log.warn("Missing required parameter: {}", ex.getParameterName());
-        
+
+        logger.warn("Missing required parameter: {}", ex.getParameterName());
+
         String message = String.format("Required parameter '%s' is missing", ex.getParameterName());
-        
+
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-            HttpStatus.BAD_REQUEST, message);
+                HttpStatus.BAD_REQUEST, message);
         problemDetail.setType(URI.create("https://api.shopping.com/problems/missing-parameter"));
         problemDetail.setTitle("Missing Parameter");
         problemDetail.setInstance(URI.create(request.getRequestURI()));
         problemDetail.setProperty("timestamp", LocalDateTime.now());
         problemDetail.setProperty("parameter", ex.getParameterName());
         problemDetail.setProperty("parameterType", ex.getParameterType());
-        
+
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
     }
-    
+
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ProblemDetail> handleNoResourceFoundException(
             NoResourceFoundException ex, HttpServletRequest request) {
-        
-        log.warn("Resource not found: {}", ex.getMessage());
-        
+
+        logger.warn("Resource not found: {}", ex.getMessage());
+
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-            HttpStatus.NOT_FOUND, "The requested resource was not found");
+                HttpStatus.NOT_FOUND, "The requested resource was not found");
         problemDetail.setType(URI.create("https://api.shopping.com/problems/resource-not-found"));
         problemDetail.setTitle("Resource Not Found");
         problemDetail.setInstance(URI.create(request.getRequestURI()));
         problemDetail.setProperty("timestamp", LocalDateTime.now());
-        
+
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(problemDetail);
     }
-    
-    // Database exceptions
-    
-    @ExceptionHandler(DataIntegrityViolationException.class)
-    public ResponseEntity<ProblemDetail> handleDataIntegrityViolationException(
-            DataIntegrityViolationException ex, HttpServletRequest request) {
-        
-        log.error("Data integrity violation: {}", ex.getMessage());
-        
-        String message = "Data integrity violation. This operation conflicts with existing data constraints.";
-        
-        // Try to provide more specific messages for common violations
-        if (ex.getMessage() != null) {
-            if (ex.getMessage().contains("Unique index or primary key violation")) {
-                message = "A record with this information already exists.";
-            } else if (ex.getMessage().contains("constraint")) {
-                message = "This operation violates a data constraint.";
-            }
-        }
-        
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-            HttpStatus.CONFLICT, message);
-        problemDetail.setType(URI.create("https://api.shopping.com/problems/data-integrity"));
-        problemDetail.setTitle("Data Integrity Violation");
-        problemDetail.setInstance(URI.create(request.getRequestURI()));
-        problemDetail.setProperty("timestamp", LocalDateTime.now());
-        
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(problemDetail);
-    }
-    
-    // Generic exceptions
-    
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ProblemDetail> handleIllegalArgumentException(
             IllegalArgumentException ex, HttpServletRequest request) {
-        
-        log.warn("Illegal argument: {}", ex.getMessage());
-        
+
+        logger.warn("Illegal argument: {}", ex.getMessage());
+
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-            HttpStatus.BAD_REQUEST, ex.getMessage());
+                HttpStatus.BAD_REQUEST, ex.getMessage());
         problemDetail.setType(URI.create("https://api.shopping.com/problems/illegal-argument"));
         problemDetail.setTitle("Illegal Argument");
         problemDetail.setInstance(URI.create(request.getRequestURI()));
         problemDetail.setProperty("timestamp", LocalDateTime.now());
-        
+
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
     }
-    
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ProblemDetail> handleGenericException(
             Exception ex, HttpServletRequest request) {
-        
-        log.error("Unexpected error occurred", ex);
-        
+
+        logger.error("Unexpected error occurred", ex);
+
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-            HttpStatus.INTERNAL_SERVER_ERROR, 
-            "An unexpected error occurred. Please try again later.");
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "An unexpected error occurred. Please try again later.");
         problemDetail.setType(URI.create("https://api.shopping.com/problems/internal-error"));
         problemDetail.setTitle("Internal Server Error");
         problemDetail.setInstance(URI.create(request.getRequestURI()));
         problemDetail.setProperty("timestamp", LocalDateTime.now());
-        
-        // Don't expose internal error details in production
+
         if (logger.isDebugEnabled()) {
             problemDetail.setProperty("debugMessage", ex.getMessage());
         }
-        
+
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problemDetail);
     }
-    
-    // Helper methods
-    
+
     private ValidationError mapFieldError(FieldError fieldError) {
         return ValidationError.of(
-            fieldError.getField(),
-            fieldError.getRejectedValue(),
-            fieldError.getDefaultMessage(),
-            fieldError.getCode()
+                fieldError.getField(),
+                fieldError.getRejectedValue(),
+                fieldError.getDefaultMessage(),
+                fieldError.getCode()
         );
     }
-    
+
     private ValidationError mapConstraintViolation(ConstraintViolation<?> violation) {
         String field = violation.getPropertyPath().toString();
         return ValidationError.of(
-            field,
-            violation.getInvalidValue(),
-            violation.getMessage(),
-            null
+                field,
+                violation.getInvalidValue(),
+                violation.getMessage(),
+                null
         );
     }
 }
 ```
 
-### Step 7.3: Test the Exception Handler
+**Key Features:**
+- **RFC 7807 ProblemDetail** - Standardized error format
+- **Specific Exception Handlers** - Different status codes per exception type
+- **Rich Error Details** - Includes timestamps, URIs, and context
+- **Duplicate SKU Detection** - Special handling for database constraint violations
 
-Create `src/test/java/com/kousenit/shopping/controllers/GlobalExceptionHandlerTest.java`:
+[Back to Table of Contents](#table-of-contents)
+
+---
+
+## Lab 8: Database Initialization with CommandLineRunner
+
+**Objective**: Populate the database with sample data on application startup.
+
+### Step 8.1: Create AppConfig
+
+Create `src/main/java/com/kousenit/shopping/config/AppConfig.java`:
 
 ```java
-package com.kousenit.shopping.controllers;
+package com.kousenit.shopping.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kousenit.shopping.dto.ProductRequest;
-import com.kousenit.shopping.exceptions.InsufficientStockException;
-import com.kousenit.shopping.exceptions.ProductNotFoundException;
-import com.kousenit.shopping.exceptions.ProductValidationException;
 import com.kousenit.shopping.services.ProductService;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 
 import java.math.BigDecimal;
+import java.util.List;
 
-import static org.hamcrest.Matchers.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+@Configuration
+@RequiredArgsConstructor
+@Slf4j
+public class AppConfig {
 
-@WebMvcTest({ProductRestController.class, GlobalExceptionHandler.class})
-class GlobalExceptionHandlerTest {
-    
-    @Autowired
-    private MockMvc mockMvc;
-    
-    @Autowired
-    private ObjectMapper objectMapper;
-    
-    @MockitoBean
-    private ProductService productService;
-    
-    @Test
-    void testProductNotFoundExceptionHandler() throws Exception {
-        // Given
-        when(productService.getProductById(999L))
-            .thenThrow(new ProductNotFoundException(999L));
-        
-        // When/Then
-        mockMvc.perform(get("/api/v1/products/999"))
-            .andExpect(status().isNotFound())
-            .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
-            .andExpect(jsonPath("$.type").value("https://api.shopping.com/problems/product-not-found"))
-            .andExpect(jsonPath("$.title").value("Product Not Found"))
-            .andExpect(jsonPath("$.status").value(404))
-            .andExpect(jsonPath("$.detail").value("Product not found with id: 999"))
-            .andExpect(jsonPath("$.productId").value(999))
-            .andExpect(jsonPath("$.timestamp").exists());
+    private final ProductService productService;
+
+    @Bean
+    @Profile("!test")
+    public CommandLineRunner initDatabase() {
+        return args -> {
+            log.info("Initializing database with sample products...");
+
+            if (productService.count() > 0) {
+                log.info("Database already contains {} products. Skipping initialization.",
+                        productService.count());
+                return;
+            }
+
+            List<ProductRequest> products = List.of(
+                    createProduct("MacBook Pro 16\"", new BigDecimal("2499.99"),
+                            "High-performance laptop for professionals", 15, "APP-000001", "sales@tech.com"),
+
+                    createProduct("iPhone 15 Pro", new BigDecimal("999.99"),
+                            "Latest flagship smartphone with advanced camera system", 50, "APP-000002",
+                            "sales@tech.com"),
+
+                    createProduct("AirPods Pro", new BigDecimal("249.99"),
+                            "Premium wireless earbuds with active noise cancellation", 100, "APP-000003",
+                            "sales@tech.com"),
+
+                    createProduct("iPad Air", new BigDecimal("599.99"),
+                            "Versatile tablet for work and play", 30, "APP-000004", "sales@tech.com"),
+
+                    createProduct("Apple Watch Series 9", new BigDecimal("399.99"),
+                            "Advanced health and fitness tracking smartwatch", 25, "APP-000005", "sales@tech.com"),
+
+                    createProduct("Magic Keyboard", new BigDecimal("299.99"),
+                            "Wireless keyboard with Touch ID", 40, "APP-000006", "accessories@tech.com"),
+
+                    createProduct("Studio Display", new BigDecimal("1599.99"),
+                            "27-inch 5K Retina display", 8, "APP-000007", "displays@tech.com"),
+
+                    createProduct("Mac Mini", new BigDecimal("599.99"),
+                            "Compact desktop computer with M2 chip", 20, "APP-000008", "sales@tech.com"),
+
+                    createProduct("HomePod mini", new BigDecimal("99.99"),
+                            "Compact smart speaker with amazing sound", 60, "APP-000009", "audio@tech.com"),
+
+                    createProduct("Apple TV 4K", new BigDecimal("179.99"),
+                            "Stream and watch in brilliant 4K HDR", 35, "APP-000010", "entertainment@tech.com"),
+
+                    createProduct("USB-C Cable", new BigDecimal("19.99"),
+                            "2-meter charging cable", 200, "ACC-000001", "accessories@tech.com"),
+
+                    createProduct("MagSafe Charger", new BigDecimal("39.99"),
+                            "Wireless charging made simple", 150, "ACC-000002", "accessories@tech.com"),
+
+                    createProduct("Leather Case", new BigDecimal("59.99"),
+                            "Premium leather case for iPhone", 80, "ACC-000003", "accessories@tech.com"),
+
+                    createProduct("Screen Protector", new BigDecimal("9.99"),
+                            "Tempered glass screen protection", 300, "ACC-000004", "accessories@tech.com"),
+
+                    createProduct("External SSD 1TB", new BigDecimal("149.99"),
+                            "High-speed portable storage", 5, "STG-000001", "storage@tech.com"));
+
+            products.forEach(productService::createProduct);
+            log.info("Database initialized with {} products", products.size());
+        };
     }
-    
-    @Test
-    void testInsufficientStockExceptionHandler() throws Exception {
-        // Given
-        when(productService.reserveStock(1L, 50))
-            .thenThrow(new InsufficientStockException(1L, 50, 10));
-        
-        ProductRequest request = new ProductRequest(null, null, null, 50, null, null);
-        
-        // When/Then
-        mockMvc.perform(post("/api/v1/products/1/reserve-stock")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-            .andExpect(status().isBadRequest())
-            .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
-            .andExpect(jsonPath("$.type").value("https://api.shopping.com/problems/insufficient-stock"))
-            .andExpect(jsonPath("$.title").value("Insufficient Stock"))
-            .andExpect(jsonPath("$.status").value(400))
-            .andExpect(jsonPath("$.productId").value(1))
-            .andExpect(jsonPath("$.requestedQuantity").value(50))
-            .andExpect(jsonPath("$.availableQuantity").value(10));
-    }
-    
-    @Test
-    void testProductValidationExceptionHandler() throws Exception {
-        // Given
-        when(productService.createProduct(any()))
-            .thenThrow(new ProductValidationException("price", BigDecimal.ZERO, "Price must be positive"));
-        
-        ProductRequest invalidRequest = new ProductRequest(
-            "Test Product",
-            BigDecimal.ZERO,
-            "Description",
-            10,
-            "TST-123456",
-            "test@example.com"
-        );
-        
-        // When/Then
-        mockMvc.perform(post("/api/v1/products")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(invalidRequest)))
-            .andExpect(status().isBadRequest())
-            .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
-            .andExpect(jsonPath("$.type").value("https://api.shopping.com/problems/validation-error"))
-            .andExpect(jsonPath("$.title").value("Validation Error"))
-            .andExpect(jsonPath("$.field").value("price"))
-            .andExpect(jsonPath("$.rejectedValue").value(0));
-    }
-    
-    @Test
-    void testMethodArgumentNotValidExceptionHandler() throws Exception {
-        // Given - request with validation errors
-        ProductRequest invalidRequest = new ProductRequest(
-            "", // blank name - violates @NotBlank
-            new BigDecimal("-10.00"), // negative price - violates @DecimalMin
-            "A".repeat(501), // too long description - violates @Size
-            -5, // negative quantity - violates @Min
-            "INVALID-SKU", // invalid SKU format - violates @Pattern
-            "not-an-email" // invalid email - violates @Email
-        );
-        
-        // When/Then
-        mockMvc.perform(post("/api/v1/products")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(invalidRequest)))
-            .andExpect(status().isBadRequest())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-            .andExpect(jsonPath("$.status").value("BAD_REQUEST"))
-            .andExpect(jsonPath("$.statusCode").value(400))
-            .andExpect(jsonPath("$.message").value("Validation failed"))
-            .andExpect(jsonPath("$.validationErrors").isArray())
-            .andExpect(jsonPath("$.validationErrors", hasSize(greaterThan(0))))
-            .andExpect(jsonPath("$.validationErrors[*].field", hasItems("name", "price", "description", "quantity", "sku", "contactEmail")));
-    }
-    
-    @Test
-    void testHttpMessageNotReadableExceptionHandler() throws Exception {
-        // Given - malformed JSON
-        String malformedJson = "{ invalid json }";
-        
-        // When/Then
-        mockMvc.perform(post("/api/v1/products")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(malformedJson))
-            .andExpect(status().isBadRequest())
-            .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
-            .andExpect(jsonPath("$.type").value("https://api.shopping.com/problems/malformed-request"))
-            .andExpect(jsonPath("$.title").value("Malformed Request"))
-            .andExpect(jsonPath("$.detail").value("Malformed JSON request"));
-    }
-    
-    @Test
-    void testMethodArgumentTypeMismatchExceptionHandler() throws Exception {
-        // Given - invalid ID type (string instead of long)
-        
-        // When/Then
-        mockMvc.perform(get("/api/v1/products/invalid-id"))
-            .andExpect(status().isBadRequest())
-            .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
-            .andExpect(jsonPath("$.type").value("https://api.shopping.com/problems/type-mismatch"))
-            .andExpect(jsonPath("$.title").value("Type Mismatch"))
-            .andExpect(jsonPath("$.parameter").value("id"))
-            .andExpect(jsonPath("$.rejectedValue").value("invalid-id"))
-            .andExpect(jsonPath("$.expectedType").value("Long"));
-    }
-    
-    @Test
-    void testMissingServletRequestParameterExceptionHandler() throws Exception {
-        // Given - missing required parameter
-        
-        // When/Then
-        mockMvc.perform(get("/api/v1/products/price-range?minPrice=100"))
-            .andExpect(status().isBadRequest())
-            .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
-            .andExpect(jsonPath("$.type").value("https://api.shopping.com/problems/missing-parameter"))
-            .andExpect(jsonPath("$.title").value("Missing Parameter"))
-            .andExpect(jsonPath("$.parameter").value("maxPrice"));
-    }
-    
-    @Test
-    void testNoResourceFoundExceptionHandler() throws Exception {
-        // Given - non-existent endpoint
-        
-        // When/Then
-        mockMvc.perform(get("/api/v1/non-existent-endpoint"))
-            .andExpect(status().isNotFound())
-            .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
-            .andExpect(jsonPath("$.type").value("https://api.shopping.com/problems/resource-not-found"))
-            .andExpect(jsonPath("$.title").value("Resource Not Found"));
-    }
-    
-    @Test
-    void testGenericExceptionHandler() throws Exception {
-        // Given
-        when(productService.getProductById(anyLong()))
-            .thenThrow(new RuntimeException("Unexpected error"));
-        
-        // When/Then
-        mockMvc.perform(get("/api/v1/products/1"))
-            .andExpect(status().isInternalServerError())
-            .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
-            .andExpect(jsonPath("$.type").value("https://api.shopping.com/problems/internal-error"))
-            .andExpect(jsonPath("$.title").value("Internal Server Error"))
-            .andExpect(jsonPath("$.status").value(500))
-            .andExpect(jsonPath("$.detail").value("An unexpected error occurred. Please try again later."));
+
+    private ProductRequest createProduct(String name, BigDecimal price, String description,
+            int quantity, String sku, String email) {
+        return new ProductRequest(name, price, description, quantity, sku, email);
     }
 }
 ```
 
-### Step 7.4: Integration Tests for Exception Handling
+**Key Features:**
+- **@Profile("!test")** - CommandLineRunner doesn't run during tests
+- **Check Before Insert** - Only initializes if database is empty
+- **Uses Service Layer** - Goes through proper business logic
+- **Clean Helper Method** - DRY principle for product creation
 
-Create `src/test/java/com/kousenit/shopping/controllers/ExceptionHandlingIntegrationTest.java`:
+[Back to Table of Contents](#table-of-contents)
 
-```java
-package com.kousenit.shopping.controllers;
+---
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kousenit.shopping.dto.ProductRequest;
-import com.kousenit.shopping.dto.StockUpdateRequest;
-import com.kousenit.shopping.entities.Product;
-import com.kousenit.shopping.repositories.ProductRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureWebMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.MediaType;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
+## Lab 9: Configure Application with Production-Ready Settings
 
-import java.math.BigDecimal;
+**Objective**: Create comprehensive configuration with profiles, logging, and monitoring.
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+### Step 9.1: Create application.yml
 
-@SpringBootTest
-@AutoConfigureWebMvc
-@ActiveProfiles("test")
-@Transactional
-class ExceptionHandlingIntegrationTest {
-    
-    @Autowired
-    private MockMvc mockMvc;
-    
-    @Autowired
-    private ObjectMapper objectMapper;
-    
-    @Autowired
-    private ProductRepository productRepository;
-    
-    @BeforeEach
-    void setUp() {
-        productRepository.deleteAll();
-    }
-    
-    @Test
-    void testRealProductNotFoundScenario() throws Exception {
-        // Verify database is empty
-        assertThat(productRepository.count()).isEqualTo(0);
-        
-        // When/Then
-        mockMvc.perform(get("/api/v1/products/999"))
-            .andExpect(status().isNotFound())
-            .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
-            .andExpect(jsonPath("$.type").value("https://api.shopping.com/problems/product-not-found"))
-            .andExpect(jsonPath("$.productId").value(999));
-    }
-    
-    @Test
-    void testRealInsufficientStockScenario() throws Exception {
-        // Create a product with limited stock
-        Product product = new Product();
-        product.setName("Limited Stock Product");
-        product.setPrice(new BigDecimal("99.99"));
-        product.setQuantity(5);
-        product.setSku("LMT-123456");
-        product.setContactEmail("test@example.com");
-        
-        Product saved = productRepository.save(product);
-        
-        // Try to reserve more stock than available
-        StockUpdateRequest request = new StockUpdateRequest(10);
-        
-        mockMvc.perform(post("/api/v1/products/" + saved.getId() + "/reserve-stock")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-            .andExpect(status().isBadRequest())
-            .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
-            .andExpect(jsonPath("$.type").value("https://api.shopping.com/problems/insufficient-stock"))
-            .andExpect(jsonPath("$.productId").value(saved.getId()))
-            .andExpect(jsonPath("$.requestedQuantity").value(10))
-            .andExpect(jsonPath("$.availableQuantity").value(5));
-    }
-    
-    @Test
-    void testRealValidationErrorScenario() throws Exception {
-        // Create product with multiple validation errors
-        ProductRequest invalidRequest = new ProductRequest(
-            "", // blank name
-            new BigDecimal("0.00"), // zero price
-            null, // null description is OK
-            -1, // negative quantity
-            "INVALID", // invalid SKU
-            "not-email" // invalid email
-        );
-        
-        mockMvc.perform(post("/api/v1/products")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(invalidRequest)))
-            .andExpect(status().isBadRequest())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-            .andExpect(jsonPath("$.status").value("BAD_REQUEST"))
-            .andExpect(jsonPath("$.message").value("Validation failed"))
-            .andExpect(jsonPath("$.validationErrors").isArray())
-            .andExpect(jsonPath("$.validationErrors[?(@.field == 'name')]").exists())
-            .andExpect(jsonPath("$.validationErrors[?(@.field == 'price')]").exists())
-            .andExpect(jsonPath("$.validationErrors[?(@.field == 'quantity')]").exists())
-            .andExpect(jsonPath("$.validationErrors[?(@.field == 'sku')]").exists())
-            .andExpect(jsonPath("$.validationErrors[?(@.field == 'contactEmail')]").exists());
-    }
-    
-    @Test
-    void testRealDuplicateSkuScenario() throws Exception {
-        // Create first product
-        Product existingProduct = new Product();
-        existingProduct.setName("Existing Product");
-        existingProduct.setPrice(new BigDecimal("99.99"));
-        existingProduct.setQuantity(10);
-        existingProduct.setSku("DUP-123456");
-        existingProduct.setContactEmail("existing@example.com");
-        
-        productRepository.save(existingProduct);
-        
-        // Try to create second product with same SKU
-        ProductRequest duplicateRequest = new ProductRequest(
-            "Duplicate Product",
-            new BigDecimal("149.99"),
-            "Another product",
-            5,
-            "DUP-123456", // Same SKU
-            "duplicate@example.com"
-        );
-        
-        mockMvc.perform(post("/api/v1/products")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(duplicateRequest)))
-            .andExpect(status().isConflict())
-            .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
-            .andExpect(jsonPath("$.type").value("https://api.shopping.com/problems/data-integrity"))
-            .andExpect(jsonPath("$.title").value("Data Integrity Violation"));
-    }
-    
-    @Test
-    void testSuccessfulRequestAfterErrorHandling() throws Exception {
-        // First, make a request that causes an error
-        mockMvc.perform(get("/api/v1/products/999"))
-            .andExpect(status().isNotFound());
-        
-        // Then, make a successful request to verify the application still works
-        ProductRequest validRequest = new ProductRequest(
-            "Valid Product",
-            new BigDecimal("99.99"),
-            "A valid product",
-            10,
-            "VAL-123456",
-            "valid@example.com"
-        );
-        
-        mockMvc.perform(post("/api/v1/products")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(validRequest)))
-            .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.name").value("Valid Product"));
-        
-        // Verify the product was actually created
-        assertThat(productRepository.count()).isEqualTo(1);
-    }
-}
-```
-
-### Step 7.5: Run Exception Handler Tests
-
-```bash
-# Run exception handler unit tests
-./gradlew test --tests GlobalExceptionHandlerTest
-
-# Run exception handling integration tests
-./gradlew test --tests ExceptionHandlingIntegrationTest
-
-# Run all tests to verify everything still works
-./gradlew test
-
-# Start the application to test error handling manually
-./gradlew bootRun
-```
-
-### Step 7.6: Manual Error Testing
-
-Test the exception handling with curl:
-
-```bash
-# Test ProductNotFoundException
-curl "http://localhost:8080/api/v1/products/999"
-
-# Test validation errors
-curl -X POST "http://localhost:8080/api/v1/products" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "name": "",
-       "price": -10,
-       "quantity": -5,
-       "sku": "INVALID",
-       "contactEmail": "not-an-email"
-     }'
-
-# Test malformed JSON
-curl -X POST "http://localhost:8080/api/v1/products" \
-     -H "Content-Type: application/json" \
-     -d '{ invalid json'
-
-# Test type mismatch
-curl "http://localhost:8080/api/v1/products/not-a-number"
-
-# Test missing parameter
-curl "http://localhost:8080/api/v1/products/price-range?minPrice=100"
-
-# Test non-existent endpoint
-curl "http://localhost:8080/api/v1/non-existent"
-```
-
-### Step 7.7: Complete application.yml Configuration
-
-Update `src/main/resources/application.yml` with the final production-ready configuration:
+Create `src/main/resources/application.yml`:
 
 ```yaml
 spring:
   application:
     name: shopping
-  
+
   datasource:
     url: jdbc:h2:mem:shopping
     driver-class-name: org.h2.Driver
     username: sa
-    password: 
+    password:
     hikari:
       maximum-pool-size: 10
       minimum-idle: 2
       connection-timeout: 20000
-  
+
   h2:
     console:
       enabled: true
       path: /h2-console
       settings:
         web-allow-others: false
-  
+
   jpa:
     database-platform: org.hibernate.dialect.H2Dialect
     hibernate:
@@ -4268,11 +1658,11 @@ spring:
           batch_size: 25
         order_inserts: true
         order_updates: true
-        
+
   mvc:
     problemdetails:
       enabled: true
-  
+
   web:
     problemdetails:
       enabled: true
@@ -4295,11 +1685,11 @@ logging:
     org.hibernate.SQL: DEBUG
     org.hibernate.type.descriptor.sql: TRACE
     org.springframework.data: DEBUG
-    
+
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
-    
+
 management:
   endpoints:
     web:
@@ -4323,7 +1713,7 @@ spring:
       hibernate:
         format_sql: false
         use_sql_comments: false
-  
+
 logging:
   level:
     root: WARN
@@ -4334,14 +1724,584 @@ logging:
     org.springframework.data: WARN
 ```
 
-**Key Learning Points:**
-- **@RestControllerAdvice**: Global exception handling across all controllers
-- **ProblemDetail**: RFC 7807 standard for HTTP API error responses
-- **Exception Hierarchy**: Handling both domain-specific and framework exceptions
-- **Structured Error Responses**: Consistent error format with validation details
-- **Logging Strategy**: Appropriate log levels for different exception types
-- **Security Considerations**: Not exposing sensitive internal details
-- **Error Testing**: Comprehensive testing of error scenarios
-- **Client-Friendly Errors**: Meaningful error messages for API consumers
+**Key Features:**
+- **HikariCP Configuration** - Production-ready connection pooling
+- **ProblemDetail Enabled** - RFC 7807 support
+- **Comprehensive Logging** - Different levels for different packages
+- **Test Profile** - Separate database and reduced logging
+- **Actuator Endpoints** - Health checks and monitoring
+- **YAML `---` Separator** - Clean profile separation
 
 [Back to Table of Contents](#table-of-contents)
+
+---
+
+## Lab 10: Write Comprehensive Tests
+
+**Objective**: Create integration tests using @DirtiesContext for proper test isolation.
+
+### Step 10.1: Create Integration Tests
+
+Create `src/test/java/com/kousenit/shopping/ShoppingApplicationIntegrationTest.java`:
+
+```java
+package com.kousenit.shopping;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kousenit.shopping.dto.ProductRequest;
+import com.kousenit.shopping.dto.ProductResponse;
+import com.kousenit.shopping.dto.StockUpdateRequest;
+import com.kousenit.shopping.repositories.ProductRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.annotation.DirtiesContext;
+
+import java.math.BigDecimal;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+/**
+ * Integration tests for the Shopping application.
+ *
+ * Testing Strategy:
+ * - Uses @DirtiesContext to refresh the Spring context after each test method
+ * - This ensures complete test isolation when testing database constraints
+ * - @BeforeEach clears the database before each test for clean state
+ * - Allows real database commits to test constraint violations (e.g., duplicate SKU)
+ *
+ * Alternative approaches considered:
+ * - @Transactional + @Rollback(false): Caused Hibernate session conflicts
+ * - Manual cleanup only: Less robust isolation between tests
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
+class ShoppingApplicationIntegrationTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private ProductRepository productRepository;
+
+    @BeforeEach
+    void setUp() {
+        // Clear the database before each test
+        productRepository.deleteAll();
+    }
+
+    @Test
+    @DisplayName("Should perform complete product lifecycle operations")
+    void testCompleteProductLifecycle() throws Exception {
+        // Verify database is empty (CommandLineRunner should not run in test profile)
+        assertThat(productRepository.count()).isEqualTo(0);
+
+        // Step 1: Create a product
+        ProductRequest createRequest = new ProductRequest(
+            "Integration Test Product",
+            new BigDecimal("199.99"),
+            "A product for integration testing",
+            25,
+            "INT-123456",
+            "integration@example.com"
+        );
+
+        String createResponse = mockMvc.perform(post("/api/v1/products")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(createRequest)))
+            .andExpect(status().isCreated())
+            .andExpect(header().exists("Location"))
+            .andExpect(jsonPath("$.name").value("Integration Test Product"))
+            .andExpect(jsonPath("$.price").value(199.99))
+            .andExpect(jsonPath("$.quantity").value(25))
+            .andExpect(jsonPath("$.sku").value("INT-123456"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        ProductResponse createdProduct = objectMapper.readValue(createResponse, ProductResponse.class);
+        Long productId = createdProduct.id();
+
+        // Verify database state
+        assertThat(productRepository.count()).isEqualTo(1);
+
+        // Step 2: Get the created product
+        mockMvc.perform(get("/api/v1/products/" + productId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value(productId))
+            .andExpect(jsonPath("$.name").value("Integration Test Product"));
+
+        // Step 3: Update the product
+        ProductRequest updateRequest = new ProductRequest(
+            "Updated Integration Product",
+            new BigDecimal("249.99"),
+            "Updated description",
+            30,
+            "INT-123456",
+            "updated@example.com"
+        );
+
+        mockMvc.perform(put("/api/v1/products/" + productId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(updateRequest)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.name").value("Updated Integration Product"))
+            .andExpect(jsonPath("$.price").value(249.99))
+            .andExpect(jsonPath("$.quantity").value(30));
+
+        // Step 4: Reserve stock
+        StockUpdateRequest reserveRequest = new StockUpdateRequest(10);
+
+        mockMvc.perform(post("/api/v1/products/" + productId + "/reserve-stock")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(reserveRequest)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.quantity").value(20));
+
+        // Step 5: Delete the product
+        mockMvc.perform(delete("/api/v1/products/" + productId))
+            .andExpect(status().isNoContent());
+
+        // Verify deletion
+        assertThat(productRepository.count()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("Should handle duplicate SKU with HTTP 409 Conflict")
+    void testDuplicateSkuHandling() throws Exception {
+        // Create first product
+        ProductRequest firstProduct = new ProductRequest(
+            "First Product",
+            new BigDecimal("99.99"),
+            "First product description",
+            10,
+            "DUP-123456",
+            "first@example.com"
+        );
+
+        mockMvc.perform(post("/api/v1/products")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(firstProduct)))
+            .andExpect(status().isCreated());
+
+        // Try to create second product with same SKU
+        ProductRequest duplicateProduct = new ProductRequest(
+            "Second Product",
+            new BigDecimal("149.99"),
+            "Second product description",
+            5,
+            "DUP-123456", // Same SKU
+            "second@example.com"
+        );
+
+        mockMvc.perform(post("/api/v1/products")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(duplicateProduct)))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.status").value(409))
+            .andExpect(jsonPath("$.title").value("Duplicate SKU"));
+    }
+
+    @Test
+    @DisplayName("Should handle validation errors with detailed response")
+    void testValidationErrors() throws Exception {
+        ProductRequest invalidProduct = new ProductRequest(
+            "AB", // Too short
+            new BigDecimal("0.00"), // Too low
+            null,
+            -5, // Negative
+            "INVALID", // Wrong format
+            "not-an-email" // Invalid email
+        );
+
+        mockMvc.perform(post("/api/v1/products")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(invalidProduct)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.validationErrors").isArray())
+            .andExpect(jsonPath("$.validationErrors.length()").value(greaterThan(0)));
+    }
+
+    @Test
+    @DisplayName("Should handle insufficient stock with detailed error")
+    void testInsufficientStockError() throws Exception {
+        // Create product with limited stock
+        ProductRequest product = new ProductRequest(
+            "Low Stock Product",
+            new BigDecimal("99.99"),
+            "Product with low stock",
+            5,
+            "LOW-123456",
+            "stock@example.com"
+        );
+
+        String response = mockMvc.perform(post("/api/v1/products")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(product)))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        ProductResponse created = objectMapper.readValue(response, ProductResponse.class);
+
+        // Try to reserve more than available
+        StockUpdateRequest excessiveReservation = new StockUpdateRequest(10);
+
+        mockMvc.perform(post("/api/v1/products/" + created.id() + "/reserve-stock")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(excessiveReservation)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.title").value("Insufficient Stock"))
+            .andExpect(jsonPath("$.productId").value(created.id()))
+            .andExpect(jsonPath("$.requestedQuantity").value(10))
+            .andExpect(jsonPath("$.availableQuantity").value(5));
+    }
+}
+```
+
+### Step 10.2: Create Service Tests
+
+Create `src/test/java/com/kousenit/shopping/services/ProductServiceTest.java`:
+
+```java
+package com.kousenit.shopping.services;
+
+import com.kousenit.shopping.dto.ProductRequest;
+import com.kousenit.shopping.dto.ProductResponse;
+import com.kousenit.shopping.entities.Product;
+import com.kousenit.shopping.exceptions.InsufficientStockException;
+import com.kousenit.shopping.exceptions.ProductNotFoundException;
+import com.kousenit.shopping.repositories.ProductRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.test.context.ActiveProfiles;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.*;
+
+@SpringBootTest
+@ActiveProfiles("test")
+class ProductServiceTest {
+
+    @MockitoBean
+    private ProductRepository productRepository;
+
+    @Autowired
+    private ProductService productService;
+
+    private Product testProduct;
+    private ProductRequest testProductRequest;
+
+    @BeforeEach
+    void setUp() {
+        testProduct = new Product();
+        testProduct.setId(1L);
+        testProduct.setName("Test Product");
+        testProduct.setPrice(new BigDecimal("99.99"));
+        testProduct.setDescription("Test Description");
+        testProduct.setQuantity(10);
+        testProduct.setSku("TST-123456");
+        testProduct.setContactEmail("test@example.com");
+
+        testProductRequest = new ProductRequest(
+                "Test Product",
+                new BigDecimal("99.99"),
+                "Test Description",
+                10,
+                "TST-123456",
+                "test@example.com");
+    }
+
+    @Test
+    @DisplayName("Should get product by id successfully")
+    void testGetProductByIdSuccess() {
+        // Given
+        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
+
+        // When
+        ProductResponse result = productService.getProductById(1L);
+
+        // Then
+        assertThat(result)
+                .isNotNull()
+                .returns(1L, ProductResponse::id)
+                .returns("Test Product", ProductResponse::name)
+                .returns(new BigDecimal("99.99"), ProductResponse::price);
+        verify(productRepository).findById(1L);
+    }
+
+    @Test
+    @DisplayName("Should throw exception when product not found")
+    void testGetProductByIdNotFound() {
+        // Given
+        when(productRepository.findById(999L)).thenReturn(Optional.empty());
+
+        // When/Then
+        assertThrows(ProductNotFoundException.class,
+                () -> productService.getProductById(999L));
+        verify(productRepository).findById(999L);
+    }
+
+    @Test
+    @DisplayName("Should create product successfully")
+    void testCreateProductSuccess() {
+        // Given
+        when(productRepository.save(any(Product.class))).thenReturn(testProduct);
+
+        // When
+        ProductResponse result = productService.createProduct(testProductRequest);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.name()).isEqualTo("Test Product");
+        verify(productRepository).save(any(Product.class));
+    }
+
+    @Test
+    @DisplayName("Should reserve stock successfully")
+    void testReserveStockSuccess() {
+        // Given
+        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
+        when(productRepository.save(any(Product.class))).thenReturn(testProduct);
+
+        // When
+        ProductResponse result = productService.reserveStock(1L, 5);
+
+        // Then
+        assertThat(result).isNotNull();
+        verify(productRepository).findById(1L);
+        verify(productRepository).save(any(Product.class));
+    }
+
+    @Test
+    @DisplayName("Should throw exception when insufficient stock")
+    void testReserveStockInsufficientStock() {
+        // Given
+        when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
+
+        // When/Then
+        assertThrows(InsufficientStockException.class,
+                () -> productService.reserveStock(1L, 50)); // More than available
+        verify(productRepository).findById(1L);
+        verify(productRepository, never()).save(any(Product.class));
+    }
+
+    @Test
+    @DisplayName("Should get all products with pagination")
+    void testGetAllProducts() {
+        // Given
+        Pageable pageable = PageRequest.of(0, 10);
+        List<Product> products = List.of(testProduct);
+        Page<Product> productPage = new PageImpl<>(products, pageable, 1);
+        when(productRepository.findAll(pageable)).thenReturn(productPage);
+
+        // When
+        Page<ProductResponse> result = productService.getAllProducts(pageable);
+
+        // Then
+        assertThat(result).hasSize(1);
+        assertThat(result.getContent().get(0).name()).isEqualTo("Test Product");
+        verify(productRepository).findAll(pageable);
+    }
+
+    @Test
+    @DisplayName("Should delete product successfully")
+    void testDeleteProductSuccess() {
+        // Given
+        when(productRepository.existsById(1L)).thenReturn(true);
+        doNothing().when(productRepository).deleteById(1L);
+
+        // When
+        productService.deleteProduct(1L);
+
+        // Then
+        verify(productRepository).existsById(1L);
+        verify(productRepository).deleteById(1L);
+    }
+
+    @Test
+    @DisplayName("Should throw exception when deleting non-existent product")
+    void testDeleteProductNotFound() {
+        // Given
+        when(productRepository.existsById(999L)).thenReturn(false);
+
+        // When/Then
+        assertThrows(ProductNotFoundException.class,
+                () -> productService.deleteProduct(999L));
+        verify(productRepository).existsById(999L);
+        verify(productRepository, never()).deleteById(anyLong());
+    }
+}
+```
+
+### Step 10.3: Run All Tests
+
+```bash
+# Run all tests
+./gradlew test
+
+# Run with coverage (if configured)
+./gradlew test jacocoTestReport
+
+# Run specific test class
+./gradlew test --tests ShoppingApplicationIntegrationTest
+./gradlew test --tests ProductServiceTest
+```
+
+**Key Testing Patterns:**
+- **@DirtiesContext** - Ensures complete test isolation
+- **@BeforeEach** - Clean database state for each test
+- **@MockitoBean** - Modern Spring Boot 3.4+ annotation (replaces @MockBean)
+- **@DisplayName** - Readable test descriptions
+- **AssertJ** - Fluent assertions for better readability
+- **Given-When-Then** - Clear test structure
+
+[Back to Table of Contents](#table-of-contents)
+
+---
+
+## Running the Application
+
+```bash
+# Run the application
+./gradlew bootRun
+
+# Run all tests
+./gradlew test
+
+# Build the application
+./gradlew build
+
+# Clean build
+./gradlew clean build
+```
+
+## Testing the API
+
+```bash
+# Get all products (paginated)
+curl http://localhost:8080/api/v1/products
+
+# Get product by ID
+curl http://localhost:8080/api/v1/products/1
+
+# Search products by name
+curl "http://localhost:8080/api/v1/products/search?name=iPhone"
+
+# Get products in price range
+curl "http://localhost:8080/api/v1/products/price-range?minPrice=100&maxPrice=500"
+
+# Get low stock products
+curl "http://localhost:8080/api/v1/products/low-stock?threshold=10"
+
+# Create a new product
+curl -X POST http://localhost:8080/api/v1/products \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Test Product",
+    "price": 99.99,
+    "description": "A test product",
+    "quantity": 10,
+    "sku": "TST-123456",
+    "contactEmail": "test@example.com"
+  }'
+
+# Update product
+curl -X PUT http://localhost:8080/api/v1/products/1 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Updated Product",
+    "price": 149.99,
+    "description": "Updated description",
+    "quantity": 20,
+    "sku": "UPD-123456",
+    "contactEmail": "updated@example.com"
+  }'
+
+# Update stock
+curl -X PUT http://localhost:8080/api/v1/products/1/stock \
+  -H "Content-Type: application/json" \
+  -d '{"quantity": 50}'
+
+# Reserve stock
+curl -X POST http://localhost:8080/api/v1/products/1/reserve-stock \
+  -H "Content-Type: application/json" \
+  -d '{"quantity": 5}'
+
+# Delete product
+curl -X DELETE http://localhost:8080/api/v1/products/1
+```
+
+## Key Learning Points
+
+### Modern Spring Boot Patterns
+- **Records for DTOs** - Immutable, concise API contracts
+- **No Service Interfaces** - Simpler for most applications
+- **Lombok Integration** - Clean, readable code
+- **@MockitoBean** - Modern Spring Boot 3.4+ testing
+
+### Architecture Best Practices
+- **DTO Pattern** - Decouple API from domain model
+- **Service Layer** - Business logic encapsulation
+- **RFC 7807 ProblemDetail** - Standardized errors
+- **Transaction Management** - Proper @Transactional usage
+
+### Testing Patterns
+- **@DirtiesContext** - Complete test isolation
+- **Integration Tests** - Test real database constraints
+- **MockMvc** - Controller testing without HTTP
+- **AssertJ** - Fluent, readable assertions
+
+### Production Readiness
+- **YAML Profiles** - Environment-specific configuration
+- **HikariCP** - Connection pool tuning
+- **Comprehensive Logging** - Debug production issues
+- **Actuator Endpoints** - Health checks and monitoring
+
+---
+
+## What You've Built
+
+Congratulations! You've created a production-ready Spring Boot application with:
+
+✅ **Modern Entity Design** with validation and indexes
+✅ **Clean Repository Layer** with custom queries
+✅ **DTO Pattern** separating API from domain
+✅ **Service Layer** with proper transactions
+✅ **RESTful API** with correct HTTP semantics
+✅ **RFC 7807 Error Handling** with ProblemDetail
+✅ **Database Initialization** with CommandLineRunner
+✅ **Production Configuration** with profiles
+✅ **Comprehensive Tests** with proper isolation
+
+This application demonstrates enterprise-level patterns used in real-world production systems.
