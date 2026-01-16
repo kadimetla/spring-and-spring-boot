@@ -1,12 +1,14 @@
 package com.kousenit.restclient.services;
 
+import com.kousenit.restclient.json.LaunchLibraryRecords.AstronautAssignment;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import java.util.stream.Collectors;
+import java.util.List;
+import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
 class LaunchLibraryServiceTest {
@@ -14,44 +16,37 @@ class LaunchLibraryServiceTest {
     private LaunchLibraryService service;
 
     @Test
-    void astronaut_aboard_station() {
-        assertNotNull(service);
-        service.getExpeditions()
-                .forEach(expedition -> {
-                    String stationName = expedition.spacestation().name();
-                    expedition.crew()
-                            .forEach(member ->
-                                    System.out.printf("%s (%s) aboard %s%n",
-                                        member.astronaut().name(),
-                                        member.role().role(),
-                                        stationName));
-                });
-    }
+    void expeditions_have_crew_aboard_stations() {
+        var expeditions = service.getExpeditions();
 
-    record AstronautAssignment(String astronautName, String role, String agency, String stationName) {}
-
-    @Test
-    void flatten_to_astronaut_assignments() {
-        service.getExpeditions().stream()
-                .flatMap(expedition -> expedition.crew().stream()
-                        .map(member -> new AstronautAssignment(
-                                member.astronaut().name(),
-                                member.role().role(),
-                                member.astronaut().agency().abbrev(),
-                                expedition.spacestation().name()
-                        )))
-                .forEach(System.out::println);
+        assertThat(expeditions).isNotEmpty();
+        assertThat(expeditions).allSatisfy(expedition -> {
+            assertThat(expedition.spacestation()).isNotNull();
+            assertThat(expedition.spacestation().name()).isNotBlank();
+            assertThat(expedition.crew()).isNotEmpty();
+        });
     }
 
     @Test
-    void group_by_space_station() {
-        service.getExpeditions().stream()
-                .collect(Collectors.groupingBy(
-                        exp -> exp.spacestation().name(),
-                        Collectors.summingLong(exp -> exp.crew().size())
-                ))
-                .forEach((station, crew) ->
-                        System.out.printf("There are %d astronauts aboard the %s%n", crew, station));
+    void astronaut_assignments_have_required_fields() {
+        List<AstronautAssignment> assignments = service.getAstronautAssignments();
+
+        assertThat(assignments).isNotEmpty();
+        assertThat(assignments).allSatisfy(assignment -> {
+            assertThat(assignment.astronautName()).isNotBlank();
+            assertThat(assignment.role()).isNotBlank();
+            assertThat(assignment.agency()).isNotBlank();
+            assertThat(assignment.stationName()).isNotBlank();
+        });
     }
 
+    @Test
+    void crew_count_by_station_returns_positive_counts() {
+        Map<String, Long> crewCounts = service.getCrewCountByStation();
+
+        assertThat(crewCounts).isNotEmpty();
+        assertThat(crewCounts.values()).allSatisfy(count ->
+                assertThat(count).isPositive()
+        );
+    }
 }

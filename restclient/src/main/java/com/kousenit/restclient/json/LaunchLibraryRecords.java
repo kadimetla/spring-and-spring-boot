@@ -55,4 +55,12 @@ public class LaunchLibraryRecords {
             String name,
             String nationality_name
     ) {}
+
+    // Flattened view of astronaut assignments
+    public record AstronautAssignment(
+            String astronautName,
+            String role,
+            String agency,
+            String stationName
+    ) {}
 }
