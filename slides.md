@@ -111,7 +111,7 @@ layout: two-cols
 - **Spring Boot**: Starters, Auto-Configuration, Executable JARs.
 - **Web Development**: Spring MVC, `@RestController`, Thymeleaf.
 - **Data Access**: `JdbcTemplate`, `JdbcClient`, Spring Data JPA.
-- **Client-Side REST**: `RestClient`, `WebClient`, HTTP Interfaces.
+- **Client-Side REST**: `RestClient`, HTTP Interfaces.
 - **Advanced Topics**: Validation, Exception Handling, Profiles.
 
 </v-clicks>
@@ -371,8 +371,7 @@ layout: section
 <v-clicks>
 
 - **`RestTemplate`**: The original, synchronous client. Now in maintenance mode.
-- **`WebClient`**: The modern, asynchronous, non-blocking client. Part of the reactive stack.
-- **`RestClient`** (Spring 6.1+): A modern, synchronous client with a fluent API inspired by `WebClient`. The recommended choice for new synchronous applications.
+- **`RestClient`** (Spring 6.1+): A modern, synchronous client with a fluent API. The recommended choice for new applications.
 - **HTTP Interfaces** (Spring 6+): A declarative, annotation-based way to create clients.
 
 </v-clicks>
@@ -385,19 +384,19 @@ layout: section
 
 ```java
 // In a service or component
-private final RestClient restClient;
+private final RestClient client;
 
-public AstroService() {
-    // Create a client instance, often configured as a bean
-    this.restClient = RestClient.create("http://api.open-notify.org");
+public LaunchLibraryService(RestClient.Builder builder) {
+    // Use injected builder for testability
+    this.client = builder.baseUrl("https://ll.thespacedevs.com").build();
 }
 
-public AstroResponse getAstroData() {
-    return restClient.get()
-            .uri("/astros.json")
-            .accept(MediaType.APPLICATION_JSON)
+public List<Expedition> getExpeditions() {
+    return Objects.requireNonNull(client.get()
+            .uri("/2.3.0/expeditions/?is_active=true&mode=detailed")
             .retrieve() // Execute the request
-            .body(AstroResponse.class); // Deserialize the body
+            .body(ExpeditionResponse.class)) // Deserialize the body
+            .results();
 }
 ```
 <v-clicks>
@@ -416,9 +415,9 @@ This is the cleanest way to define a client. You just write an interface.
 
 1.  **Define the Interface**:
 ```java
-public interface AstroInterface {
-    @GetExchange("/astros.json")
-    AstroResponse getAstroResponse();
+public interface LaunchLibraryInterface {
+    @GetExchange("/2.3.0/expeditions/?is_active=true&mode=detailed")
+    ExpeditionResponse getExpeditions();
 }
 ```
 ---
@@ -428,12 +427,12 @@ public interface AstroInterface {
 2.  **Create a Factory Bean**: In a `@Configuration` class, tell Spring how to create an implementation of your interface.
 ```java
 @Bean
-public AstroInterface astroInterface() {
-    WebClient client = WebClient.create("http://api.open-notify.org");
-    WebClientAdapter adapter = WebClientAdapter.create(client);
+public LaunchLibraryInterface launchLibraryInterface(RestClient.Builder builder) {
+    RestClient client = builder.baseUrl("https://ll.thespacedevs.com").build();
+    RestClientAdapter adapter = RestClientAdapter.create(client);
     HttpServiceProxyFactory factory = HttpServiceProxyFactory
             .builderFor(adapter).build();
-    return factory.createClient(AstroInterface.class);
+    return factory.createClient(LaunchLibraryInterface.class);
 }
 ```
 <v-clicks>
@@ -441,34 +440,16 @@ public AstroInterface astroInterface() {
 3.  **Inject and Use**:
 ```java
 @Autowired
-private AstroInterface astroClient;
+private LaunchLibraryInterface launchClient;
 
 // Now you can just call the method!
-AstroResponse response = astroClient.getAstroResponse();
+ExpeditionResponse response = launchClient.getExpeditions();
 ```
 </v-clicks>
 
 ---
 
-# REST Client Choice: RestClient vs WebClient
-
-<v-clicks>
-
-- **RestClient** (Recommended for most apps)
-  - Synchronous applications
-  - Simple request/response patterns
-  - Modern fluent API
-
-- **WebClient**
-  - Reactive applications
-  - Streaming data
-  - Non-blocking I/O requirements
-
-</v-clicks>
-
----
-
-# REST Client Choice: HTTP Interfaces
+# When to Use HTTP Interfaces
 
 <v-clicks>
 
@@ -478,8 +459,7 @@ AstroResponse response = astroClient.getAstroResponse();
   - Minimal boilerplate code
 
 ## Quick decision guide:
-- **Single API calls** → RestClient
-- **Reactive/streaming** → WebClient  
+- **Single API call** → RestClient directly
 - **Multiple endpoints** → HTTP Interfaces
 
 </v-clicks>

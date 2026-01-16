@@ -310,18 +310,6 @@ class HelloControllerTest {
 }
 ```
 
-### Reactive Testing
-
-```java
-@Test
-void shouldReturnUsersReactively() {
-    service.getAllUsersAsync()
-            .as(StepVerifier::create)
-            .expectNextCount(10)
-            .verifyComplete();
-}
-```
-
 ## Common Troubleshooting
 
 ### Build Issues

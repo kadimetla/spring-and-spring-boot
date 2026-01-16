@@ -17,14 +17,13 @@ This document contains hands-on exercises for learning Spring Boot fundamentals,
 2. [Add a REST Controller](#add-a-rest-controller)
 3. [Building a REST Client](#building-a-rest-client)
 4. [HTTP Interfaces (Spring Boot 3+)](#http-interfaces-spring-boot-3)
-5. [Basic REST API Consumption with RestClient](#basic-rest-api-consumption-with-restclient)
+5. [Basic REST API Consumption with HTTP Interfaces](#basic-rest-api-consumption-with-http-interfaces)
 6. [Configuration with @Value and Error Handling](#configuration-with-value-and-error-handling)
-7. [Reactive Programming with WebClient](#reactive-programming-with-webclient)
-8. [Using the JDBC Template](#using-the-jdbc-template)
-9. [Using the JDBC Client (Spring Boot 3.2+)](#using-the-jdbc-client-spring-boot-32)
-10. [Using JPA entities and Spring Data JPA](#using-jpa-entities-and-spring-data-jpa)
-11. [Spring Profiles for Environment-Specific Configuration](#spring-profiles-for-environment-specific-configuration)
-12. [Optional: Aspect-Oriented Programming (AOP) with Spring](#optional-aspect-oriented-programming-aop-with-spring)
+7. [Using the JDBC Template](#using-the-jdbc-template)
+8. [Using the JDBC Client (Spring Boot 3.2+)](#using-the-jdbc-client-spring-boot-32)
+9. [Using JPA entities and Spring Data JPA](#using-jpa-entities-and-spring-data-jpa)
+10. [Spring Profiles for Environment-Specific Configuration](#spring-profiles-for-environment-specific-configuration)
+11. [Optional: Aspect-Oriented Programming (AOP) with Spring](#optional-aspect-oriented-programming-aop-with-spring)
 
 ## Creating a New Project
 
@@ -333,320 +332,375 @@ public void greetWithoutName(@Autowired TestRestTemplate template) {
 16. The other test uses the `getForObject` method, which returns the de-serialized response directly. This is simpler, but does not allow access to the headers. You can use either approach in your code.
 17. The tests should now pass. This application only checks HTTP GET requests, because the application doesn't have any way to save `Greeting` instances. Once that is added, you could include analogous POST, PUT, and DELETE operations.
 
-## Building a REST client
+## Building a REST Client
 
-This exercise uses both the modern `RestClient` class for synchronous access and the reactive `WebClient` for asynchronous access to RESTful web services. The `RestClient` is Spring's modern replacement for `RestTemplate`, providing a fluent API similar to `WebClient` but for synchronous calls. For reactive applications, `WebClient` returns responses of type `Mono` and `Flux`, which are essentially "promises" that return a single object (for `Mono`) or a collection (for `Flux`) of objects.
+This exercise uses the modern `RestClient` class to access RESTful web services. `RestClient` was introduced in Spring 6.1 as the modern replacement for `RestTemplate`, providing a fluent API for synchronous HTTP operations. We'll consume the [Launch Library 2 API](https://ll.thespacedevs.com/) to retrieve information about active space expeditions and astronauts currently in space.
 
-1. Create a new Spring Boot project (either by using the Initializr at http://start.spring.io or using your IDE) called `restclient`. Add both the _Spring Web_ and _Spring Reactive Web_ dependencies.
-2. Create a service class called `AstroService` in a `com.kousenit.restclient.services` package under `src/main/java`
+> [!NOTE]
+> The Launch Library API provides real-time data about space launches, astronauts, and space stations. It's an excellent API for learning because it has a rich, nested JSON structure that demonstrates real-world data mapping patterns.
 
-3. Add the annotation `@Service` to the class (from the `org.springframework.stereotype` package, so you'll need an `import` statement)
+### Step 1: Create the Project
 
-4. Add private attributes to `AstroService` of type `RestClient` called `restClient` and `WebClient` called `webClient`
+1. Create a new Spring Boot project (either by using the Initializr at http://start.spring.io or using your IDE) called `restclient`. Add the _Spring Web_ dependency.
 
-5. Add a constructor to `AstroService` that takes no arguments. Inside the constructor, create both clients using their static factory methods:
-
-   ```java
-   public AstroService() {
-       this.restClient = RestClient.create("http://api.open-notify.org");
-       this.webClient = WebClient.create("http://api.open-notify.org");
-   }
+2. The project structure should look like:
+   ```
+   restclient/
+   ├── src/main/java/com/kousenit/restclient/
+   │   ├── RestClientApplication.java
+   │   ├── json/
+   │   └── services/
+   └── src/test/java/com/kousenit/restclient/
+       └── services/
    ```
 
-   > [!NOTE]
-   > `RestClient` was introduced in Spring 6.1 as the modern replacement for `RestTemplate`. It provides a fluent API similar to `WebClient` but for synchronous operations.
+### Step 2: Understand the API Response
 
-6. The site providing the API is http://open-notify.org/, which is an API based on NASA data. We'll access the _Number of People in Space_ service using both synchronous and asynchronous approaches.
+3. The Launch Library API returns detailed expedition data. Here's a simplified view of the JSON structure from `https://ll.thespacedevs.com/2.3.0/expeditions/?is_active=true&mode=detailed`:
 
-7. First, let's add a synchronous method using `RestClient`. Add a `public` method to our service called `getAstroResponseSync` that takes no arguments and returns a `String`:
-
-   ```java
-   public String getPeopleInSpace() {
-       return restClient.get()
-               .uri("/astros.json")
-               .accept(MediaType.APPLICATION_JSON)
-               .retrieve()
-               .body(String.class);
-   }
-   ```
-
-8. For proper object mapping, we'll need to create Java classes that map to the JSON structure. A typical example of the JSON response is:
-
-```javascript
+```json
 {
-  "message": "success",
-  "number": NUMBER_OF_PEOPLE_IN_SPACE,
-  "people": [
-    {"name": NAME, "craft": SPACECRAFT_NAME},
-    ...
+  "count": 2,
+  "results": [
+    {
+      "id": 156,
+      "name": "Expedition 72",
+      "start": "2024-09-23T00:00:00Z",
+      "end": null,
+      "spacestation": {
+        "id": 4,
+        "name": "International Space Station",
+        "orbit": "Low Earth Orbit"
+      },
+      "crew": [
+        {
+          "role": { "role": "Commander" },
+          "astronaut": {
+            "id": 477,
+            "name": "Suni Williams",
+            "agency": { "name": "National Aeronautics and Space Administration", "abbrev": "NASA" },
+            "nationality": [{ "name": "United States of America", "nationality_name": "American" }],
+            "time_in_space": "P322DT18H26M",
+            "bio": "..."
+          }
+        }
+      ]
+    }
   ]
 }
 ```
 
-9. Each of the two JSON objects needs to be mapped to a class. Create classes `Assignment` and `AstroResponse` in the `com.kousenit.restclient.json` package.
+> [!TIP]
+> Real-world APIs often have deeply nested structures. Records handle this elegantly by composing smaller records into larger ones.
 
-10. Using **records** (the modern Java approach for immutable data classes), create these classes:
+### Step 3: Create Record Classes for JSON Mapping
 
-   ```java
-   public record Assignment(String name, String craft) {
-   }
-
-   public record AstroResponse(String message, int number, List<Assignment> people) {
-   }
-   ```
-
-   > [!NOTE]
-   > Records automatically provide constructors, getters, `equals()`, `hashCode()`, and `toString()` methods. This replaces 40+ lines of boilerplate code with just 2 lines!
-
-11. **For reference only** - Traditional class approach (not recommended for new code):
-
-```java
-public class Assignment {
-    private String name;
-    private String craft;
-
-    public Assignment() {
-    }
-
-    public Assignment(String name, String craft) {
-        this.name = name;
-        this.craft = craft;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getCraft() {
-        return craft;
-    }
-
-    public void setCraft(String craft) {
-        this.craft = craft;
-    }
-
-    @Override
-    public String toString() {
-        return "Assignment{" +
-                "name='" + name + '\'' +
-                ", craft='" + craft + '\'' +
-                '}';
-    }
-}
-```
-
-> **Note:** It is not actually necessary to map all the included fields, but the response is simple enough to do so in this case.
-
-12. The `AstroResponse` class to accompany the `Assignment` class:
+4. Create a class called `LaunchLibraryRecords` in the `com.kousenit.restclient.json` package. We'll use nested records to model the entire response structure:
 
 ```java
 package com.kousenit.restclient.json;
 
 import java.util.List;
 
-public class AstroResponse {
-    private String message;
-    private int number;
-    private List<Assignment> people;
+public class LaunchLibraryRecords {
+    // Root response wrapper
+    public record ExpeditionResponse(
+            int count,
+            List<Expedition> results
+    ) {}
 
-    public AstroResponse() {
-    }
+    // Expedition with space station and crew
+    public record Expedition(
+            int id,
+            String name,
+            String start,
+            String end,
+            SpaceStation spacestation,
+            List<CrewMember> crew
+    ) {}
 
-    public AstroResponse(String message, int number, List<Assignment> people) {
-        this.message = message;
-        this.number = number;
-        this.people = people;
-    }
+    // Space station basics
+    public record SpaceStation(
+            int id,
+            String name,
+            String orbit
+    ) {}
 
-    public String getMessage() {
-        return message;
-    }
+    // Crew assignment (role + astronaut)
+    public record CrewMember(
+            Role role,
+            Astronaut astronaut
+    ) {}
 
-    public void setMessage(String message) {
-        this.message = message;
-    }
+    public record Role(
+            String role
+    ) {}
 
-    public int getNumber() {
-        return number;
-    }
+    // Astronaut details
+    public record Astronaut(
+            int id,
+            String name,
+            Agency agency,
+            List<Nationality> nationality,
+            String time_in_space,
+            String bio
+    ) {}
 
-    public void setNumber(int number) {
-        this.number = number;
-    }
+    public record Agency(
+            String name,
+            String abbrev
+    ) {}
 
-    public List<Assignment> getPeople() {
-        return people;
-    }
+    public record Nationality(
+            String name,
+            String nationality_name
+    ) {}
 
-    public void setPeople(List<Assignment> people) {
-        this.people = people;
-    }
-
-    @Override
-    public String toString() {
-        return "AstroResponse{" +
-                "message='" + message + '\'' +
-                ", number=" + number +
-                ", people=" + people +
-                '}';
-    }
+    // Flattened view for easier consumption
+    public record AstronautAssignment(
+            String astronautName,
+            String role,
+            String agency,
+            String stationName
+    ) {}
 }
 ```
 
-13. Now update the JSON response methods to work with the `AstroResponse` class. Add a synchronous method using `RestClient`:
+> [!NOTE]
+> Grouping related records in a single file with a container class keeps all the API types together. The static import `import static ...LaunchLibraryRecords.*` lets you use the record names directly without prefixes.
 
-    ```java
-    public AstroResponse getAstroResponseSync() {
-        return restClient.get()
-                .uri("/astros.json")
-                .accept(MediaType.APPLICATION_JSON)
-                .retrieve()
-                .body(AstroResponse.class);
-    }
-    ```
+> [!TIP]
+> You don't need to map every field in the JSON response. Jackson (Spring's default JSON library) will ignore unmapped fields. Only include the fields your application actually needs.
 
-14. For asynchronous access, add a method using `WebClient` that returns a `Mono`:
+### Step 4: Create the Service Class
 
-    ```java
-    public Mono<AstroResponse> getAstroResponseAsync() {
-        return webClient.get()
-                .uri("/astros.json")
-                .accept(MediaType.APPLICATION_JSON)
-                .retrieve()
-                .bodyToMono(AstroResponse.class)
-                .log();
-    }
-    ```
-
-    > [!NOTE]
-    > The `log()` method will log all reactive stream interactions to the console, which is useful for debugging. In a production reactive application, you would typically return the `Mono` directly rather than blocking on it.
-
-15. To demonstrate how to use the service, create a JUnit 5 test for it. Create a class called `AstroServiceTest` in the `com.kousenit.restclient.services` package under the test hierarchy, `src/test/java`.
-
-16. Add tests for both synchronous and asynchronous methods:
+5. Create a service class called `LaunchLibraryService` in the `com.kousenit.restclient.services` package:
 
 ```java
 package com.kousenit.restclient.services;
 
-import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
 
-@SpringBootTest
-class AstroServiceTest {
-    private final Logger logger = LoggerFactory.getLogger(AstroService.class);
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
-    @Autowired
-    private AstroService service;
+import static com.kousenit.restclient.json.LaunchLibraryRecords.*;
 
-    @Test
-    void getAstroResponseSync() {
-        AstroResponse response = service.getAstroResponseSync();
-        logger.info(response.toString());
-        assertNotNull(response);
-        assertEquals("success", response.getMessage());
-        assertTrue(response.getNumber() >= 0);
-        assertEquals(response.getNumber(), response.getPeople().size());
+@Service
+public class LaunchLibraryService {
+    private static final String BASE_URL = "https://ll.thespacedevs.com";
+    private final RestClient client;
+
+    public LaunchLibraryService(RestClient.Builder builder) {
+        this.client = builder.baseUrl(BASE_URL).build();
     }
 
-    @Test
-    void getAstroResponseAsync() {
-        AstroResponse response = service.getAstroResponseAsync()
-                .block(Duration.ofSeconds(2));
-        assertNotNull(response);
-        assertEquals("success", response.getMessage());
-        assertTrue(response.getNumber() >= 0);
-        assertEquals(response.getNumber(), response.getPeople().size());
-        logger.info(response.toString());
-    }
-
-    @Test
-    void getAstroResponseAsyncWithStepVerifier() {
-        service.getAstroResponseAsync()
-                .as(StepVerifier::create)
-                .assertNext(response -> {
-                    assertNotNull(response);
-                    assertEquals("success", response.getMessage());
-                    assertTrue(response.getNumber() >= 0);
-                    assertEquals(response.getNumber(), response.getPeople().size());
-                    logger.info(response.toString());
-                })
-                .verifyComplete();
+    public List<Expedition> getExpeditions() {
+        return Objects.requireNonNull(client.get()
+                        .uri("/2.3.0/expeditions/?is_active=true&mode=detailed")
+                        .retrieve()
+                        .body(ExpeditionResponse.class))
+                .results();
     }
 }
 ```
 
-17. You'll need to add these imports to the test class:
+> [!IMPORTANT]
+> Notice we inject `RestClient.Builder` rather than creating the `RestClient` directly. Spring Boot auto-configures a `RestClient.Builder` bean that includes any application-wide settings (timeouts, interceptors, etc.). This is the recommended approach for production code.
 
-    ```java
-    import reactor.test.StepVerifier;
-    import java.time.Duration;
-    import static org.junit.jupiter.api.Assertions.*;
-    ```
+### Step 5: Add Business Methods
 
-18. Note the use of the SLF4J `Logger` class to log the responses to the console. The reactive test also demonstrates `StepVerifier`, which is the preferred way to test reactive streams.
+6. Real services typically transform raw API data into formats useful to callers. Add methods to provide flattened views of the data:
 
-19. If you used records for the JSON classes, replace method calls like `getMessage()` with `message()`, `getNumber()` with `number()`, and `getPeople()` with `people()`.
+```java
+public List<AstronautAssignment> getAstronautAssignments() {
+    return getExpeditions().stream()
+            .flatMap(expedition -> expedition.crew().stream()
+                    .map(member -> new AstronautAssignment(
+                            member.astronaut().name(),
+                            member.role().role(),
+                            member.astronaut().agency().abbrev(),
+                            expedition.spacestation().name()
+                    )))
+            .toList();
+}
 
-20. Execute the tests and make any needed corrections until they pass.
+public Map<String, Long> getCrewCountByStation() {
+    return getExpeditions().stream()
+            .collect(Collectors.groupingBy(
+                    exp -> exp.spacestation().name(),
+                    Collectors.summingLong(exp -> exp.crew().size())
+            ));
+}
+```
+
+> [!TIP]
+> The `flatMap` operation is key here—it "flattens" the nested structure (expeditions → crew members) into a single stream of astronaut assignments. This is a common pattern when working with nested API responses.
+
+### Step 6: Write Tests
+
+7. Create a test class called `LaunchLibraryServiceTest` in the `com.kousenit.restclient.services` package under `src/test/java`:
+
+```java
+package com.kousenit.restclient.services;
+
+import com.kousenit.restclient.json.LaunchLibraryRecords.AstronautAssignment;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@SpringBootTest
+class LaunchLibraryServiceTest {
+    @Autowired
+    private LaunchLibraryService service;
+
+    @Test
+    void expeditions_have_crew_aboard_stations() {
+        var expeditions = service.getExpeditions();
+
+        assertThat(expeditions).isNotEmpty();
+        assertThat(expeditions).allSatisfy(expedition -> {
+            assertThat(expedition.spacestation()).isNotNull();
+            assertThat(expedition.spacestation().name()).isNotBlank();
+            assertThat(expedition.crew()).isNotEmpty();
+        });
+    }
+
+    @Test
+    void astronaut_assignments_have_required_fields() {
+        List<AstronautAssignment> assignments = service.getAstronautAssignments();
+
+        assertThat(assignments).isNotEmpty();
+        assertThat(assignments).allSatisfy(assignment -> {
+            assertThat(assignment.astronautName()).isNotBlank();
+            assertThat(assignment.role()).isNotBlank();
+            assertThat(assignment.agency()).isNotBlank();
+            assertThat(assignment.stationName()).isNotBlank();
+        });
+    }
+
+    @Test
+    void crew_count_by_station_returns_positive_counts() {
+        Map<String, Long> crewCounts = service.getCrewCountByStation();
+
+        assertThat(crewCounts).isNotEmpty();
+        assertThat(crewCounts.values()).allSatisfy(count ->
+                assertThat(count).isPositive()
+        );
+    }
+}
+```
+
+> [!NOTE]
+> These tests verify the *shape* of the data rather than specific values. This makes them resilient to real-world changes (astronauts come and go, expeditions change) while still catching deserialization issues or API changes.
+
+> [!TIP]
+> AssertJ's `allSatisfy()` is perfect for validating collections from external APIs. Each element is checked against the lambda, and failures clearly report which element failed and why.
+
+8. Run the tests and verify they pass:
+
+```bash
+./gradlew test --tests LaunchLibraryServiceTest
+```
 
 [Back to Table of Contents](#table-of-contents)
 
 ## HTTP Interfaces (Spring Boot 3+)
 
-Spring Boot 3.0 introduced HTTP Interfaces, a declarative way to access external RESTful web services. The [Spring 6 documentation](https://docs.spring.io/spring-framework/docs/current/reference/html/integration.html#spring-integration) has a section on REST clients, which includes the `RestTemplate` and `WebClient` classes discussed above, as well as something called HTTP Interface.
+Spring Boot 3.0 introduced HTTP Interfaces, a declarative way to access external RESTful web services. Instead of writing `RestClient` calls manually, you declare an interface with annotated methods, and Spring implements it for you.
 
-The idea is to declare an interface with the access methods you want, and add a proxy factory bean to the application context, and Spring will implement the interface methods for you. This exercise is a quick example of how to do that for our current application.
+> [!NOTE]
+> HTTP Interfaces work similarly to Spring Data repositories—you define the contract, Spring provides the implementation.
 
-1. Add an interface called `AstroInterface` to the `services` package.
-2. Inside that interface, add a method to perform an HTTP GET request to our "People In Space" endpoint:
+### Step 1: Create the Interface
+
+1. Add an interface called `LaunchLibraryInterface` to the `services` package:
 
 ```java
-public interface AstroInterface {
-    @GetExchange("/astros.json")
-    Mono<AstroResponse> getAstroResponse();
+package com.kousenit.restclient.services;
+
+import org.springframework.web.service.annotation.GetExchange;
+
+import static com.kousenit.restclient.json.LaunchLibraryRecords.*;
+
+public interface LaunchLibraryInterface {
+    @GetExchange("/2.3.0/expeditions/?is_active=true&mode=detailed")
+    ExpeditionResponse getActiveExpeditions();
 }
 ```
 
-3. Like most publicly available services, this service only supports GET requests. For those that support other HTTP methods, there are annotations `@PutExchange`, `@PostExchange`, `@DeleteExchange`, and so on. Also, this particular request does not take any parameters, so it is particularly simple. If it took parameters, they would appear in the URL at Http Template variables, and in the parameter list of the method annotated with `@PathVariable` or something similar.
-4. We now need the proxy factory bean, which goes in a Java configuration class. Since the `RestClientApplication` class (the class with the standard Java `main` method) is annotated with `@SpringBootApplication`, it ultimately contains the annotation `@Configuration`. That means we can add `@Bean` methods to it, which Spring will use to add beans to the application context. Therefore, add the following bean to that class:
+2. The `@GetExchange` annotation marks this method as an HTTP GET request. Spring will implement this interface at runtime, making the HTTP call and deserializing the response automatically.
+
+> [!TIP]
+> For other HTTP methods, use `@PostExchange`, `@PutExchange`, `@DeleteExchange`, etc. Parameters can be added using `@PathVariable`, `@RequestParam`, and `@RequestBody` annotations.
+
+### Step 2: Create the Proxy Factory Bean
+
+3. We need to tell Spring how to create an implementation of our interface. Add this bean to your `RestClientApplication` class (or a separate `@Configuration` class):
 
 ```java
 @Bean
-public AstroInterface astroInterface() {
-    WebClient client = WebClient.create("http://api.open-notify.org/");
-    WebClientAdapter adapter = WebClientAdapter.create(client);
-    HttpServiceProxyFactory factory = HttpServiceProxyFactory.builderFor(adapter).build();
-    return factory.createClient(AstroInterface.class);
+public LaunchLibraryInterface launchLibraryInterface(RestClient.Builder builder) {
+    RestClient client = builder
+            .baseUrl("https://ll.thespacedevs.com")
+            .build();
+    RestClientAdapter adapter = RestClientAdapter.create(client);
+    HttpServiceProxyFactory factory = HttpServiceProxyFactory
+            .builderFor(adapter)
+            .build();
+    return factory.createClient(LaunchLibraryInterface.class);
 }
 ```
 
-5. That method creates a `WebClient` configured for the base URL, and uses that to build an `HttpServiceProxyFactory`. From the factory, we use the `createClient` method to tell Spring to create a class that implements the `AstroInterface`.
-6. To test this, simply reuse the `AstroServiceTest` class by adding another test:
+4. You'll need these imports:
+
+```java
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.support.RestClientAdapter;
+import org.springframework.web.service.invoker.HttpServiceProxyFactory;
+```
+
+> [!NOTE]
+> The `HttpServiceProxyFactory` creates a dynamic proxy that implements `LaunchLibraryInterface`. Each method call is translated into an HTTP request based on the annotations.
+
+### Step 3: Test the Interface
+
+5. Add a test to `LaunchLibraryServiceTest` (or create a new test class):
 
 ```java
 @Test
-void getAstroResponseFromInterface(@Autowired AstroInterface astroInterface) {
-    AstroResponse response = astroInterface.getAstroResponse()
-            .block(Duration.ofSeconds(2));
-    assertNotNull(response);
-    assertAll(
-            () -> assertEquals("success", response.message()),
-            () -> assertTrue(response.number() >= 0),
-            () -> assertEquals(response.number(), response.people().size())
-    );
-    System.out.println(response);
+void interface_returns_active_expeditions(@Autowired LaunchLibraryInterface launchLibraryInterface) {
+    ExpeditionResponse response = launchLibraryInterface.getActiveExpeditions();
+
+    assertThat(response).isNotNull();
+    assertThat(response.count()).isPositive();
+    assertThat(response.results()).isNotEmpty();
+    assertThat(response.results()).allSatisfy(expedition -> {
+        assertThat(expedition.name()).isNotBlank();
+        assertThat(expedition.spacestation()).isNotNull();
+        assertThat(expedition.crew()).isNotEmpty();
+    });
 }
 ```
 
-7. That test should pass. Note that for synchronous access, simply change the return type of the method inside the `getAstroResponse` method of `AstroInterface` to `AstroResponse` instead of the `Mono`. See the documentation for additional details.
+6. You'll need this additional import in the test:
+
+```java
+import static com.kousenit.restclient.json.LaunchLibraryRecords.*;
+```
+
+7. Run the test to verify the HTTP Interface works correctly.
+
+> [!TIP]
+> HTTP Interfaces are especially powerful when you have many endpoints to consume. The declarative style keeps your code clean and focused on the API contract rather than HTTP mechanics.
 
 ## Basic REST API Consumption with HTTP Interfaces
 
@@ -734,9 +788,6 @@ This exercise applies the HTTP Interface pattern you just learned to consume the
        return factory.createClient(JsonPlaceholderInterface.class);
    }
    ```
-
-   > [!TIP]
-   > For a reactive version, replace `RestClient` with `WebClient` and use `WebClientAdapter` instead. You can also change the return types in the interface to `Mono<T>` or `Flux<T>`.
 
 ### Step 4: Create Tests
 
@@ -1092,240 +1143,6 @@ This exercise builds on the basic REST client by adding configuration management
 
 > [!TIP]
 > Always provide sensible defaults for configuration values. This makes your application more resilient and easier to deploy.
-
-[Back to Table of Contents](#table-of-contents)
-
-## Reactive Programming with WebClient
-
-This exercise introduces reactive programming using Spring's `WebClient` for asynchronous, non-blocking API calls.
-
-> [!NOTE]
-> `WebClient` is the reactive alternative to `RestClient`, returning `Mono` (single value) and `Flux` (multiple values) from Project Reactor.
-
-### Step 1: Create Reactive Service
-
-1. Create `ReactiveJsonPlaceholderService` in `com.kousenit.restclient.services`:
-
-   ```java
-   @Service
-   public class ReactiveJsonPlaceholderService {
-       private final WebClient webClient;
-       private final Logger logger = LoggerFactory.getLogger(ReactiveJsonPlaceholderService.class);
-
-       public ReactiveJsonPlaceholderService() {
-           this.webClient = WebClient.builder()
-                   .baseUrl("https://jsonplaceholder.typicode.com")
-                   .build();
-       }
-
-       // Get all users reactively
-       public Flux<SimpleUser> getAllUsersReactive() {
-           return webClient.get()
-                   .uri("/users")
-                   .accept(MediaType.APPLICATION_JSON)
-                   .retrieve()
-                   .bodyToFlux(SimpleUser.class)
-                   .doOnNext(user -> logger.debug("Received user: {}", user.name()))
-                   .doOnComplete(() -> logger.info("Completed fetching users"))
-                   .doOnError(error -> logger.error("Error fetching users", error));
-       }
-
-       // Get single user
-       public Mono<SimpleUser> getUserByIdReactive(Long id) {
-           return webClient.get()
-                   .uri("/users/{id}", id)
-                   .retrieve()
-                   .bodyToMono(SimpleUser.class)
-                   .doOnSuccess(user -> logger.debug("Retrieved user: {}", user))
-                   .onErrorResume(WebClientResponseException.NotFound.class, 
-                               e -> Mono.empty());
-       }
-
-       // Parallel requests example
-       public Mono<UserWithPosts> getUserWithPosts(Long userId) {
-           Mono<SimpleUser> userMono = getUserByIdReactive(userId);
-           Mono<List<Post>> postsMono = getPostsByUserIdReactive(userId)
-                   .collectList();
-           
-           return Mono.zip(userMono, postsMono, UserWithPosts::new);
-       }
-
-       // Get posts as Flux
-       public Flux<Post> getPostsByUserIdReactive(Long userId) {
-           return webClient.get()
-                   .uri("/users/{userId}/posts", userId)
-                   .retrieve()
-                   .bodyToFlux(Post.class);
-       }
-
-       // Create post reactively
-       public Mono<Post> createPostReactive(Post post) {
-           return webClient.post()
-                   .uri("/posts")
-                   .contentType(MediaType.APPLICATION_JSON)
-                   .bodyValue(post)
-                   .retrieve()
-                   .bodyToMono(Post.class)
-                   .timeout(Duration.ofSeconds(5))
-                   .retry(3);
-       }
-
-       // Record for combined data
-       public record UserWithPosts(SimpleUser user, List<Post> posts) {}
-   }
-   ```
-
-### Step 2: Advanced Reactive Patterns
-
-2. Add methods demonstrating reactive operators:
-
-   ```java
-   // Transform and filter data
-   public Flux<String> getUserNames() {
-       return getAllUsersReactive()
-               .map(SimpleUser::name)
-               .filter(name -> name.length() > 10)
-               .sort()
-               .distinct();
-   }
-
-   // Batch processing
-   public Flux<List<SimpleUser>> getUsersInBatches(int batchSize) {
-       return getAllUsersReactive()
-               .buffer(batchSize);
-   }
-
-   // Error handling with fallback
-   public Mono<SimpleUser> getUserWithFallback(Long id) {
-       return getUserByIdReactive(id)
-               .switchIfEmpty(Mono.just(
-                   new SimpleUser(0L, "Unknown User", "unknown", "unknown@example.com")
-               ));
-   }
-
-   // Combine multiple API calls
-   public Flux<Post> getPostsForMultipleUsers(List<Long> userIds) {
-       return Flux.fromIterable(userIds)
-               .flatMap(this::getPostsByUserIdReactive)
-               .sort(Comparator.comparing(Post::title));
-   }
-   ```
-
-### Step 3: Test Reactive Operations
-
-3. Create reactive tests using `StepVerifier`:
-
-   ```java
-   @SpringBootTest
-   class ReactiveJsonPlaceholderServiceTest {
-       
-       @Autowired
-       private ReactiveJsonPlaceholderService service;
-       
-       @Test
-       void getAllUsersReactive() {
-           service.getAllUsersReactive()
-                   .as(StepVerifier::create)
-                   .expectNextCount(10)
-                   .verifyComplete();
-       }
-       
-       @Test
-       void getUserByIdReactive() {
-           service.getUserByIdReactive(1L)
-                   .as(StepVerifier::create)
-                   .assertNext(user -> {
-                       assertEquals("Leanne Graham", user.name());
-                       assertEquals("Bret", user.username());
-                   })
-                   .verifyComplete();
-       }
-       
-       @Test
-       void getUserNotFound() {
-           service.getUserByIdReactive(999L)
-                   .as(StepVerifier::create)
-                   .verifyComplete(); // Empty due to error handling
-       }
-       
-       @Test
-       void getUserWithPosts() {
-           service.getUserWithPosts(1L)
-                   .as(StepVerifier::create)
-                   .assertNext(result -> {
-                       assertEquals("Leanne Graham", result.user().name());
-                       assertEquals(10, result.posts().size());
-                   })
-                   .verifyComplete();
-       }
-       
-       @Test
-       void getUserNames() {
-           service.getUserNames()
-                   .as(StepVerifier::create)
-                   .expectNextCount(count -> count > 0)
-                   .verifyComplete();
-       }
-       
-       @Test
-       void testTimeout() {
-           // Test timeout behavior
-           Post newPost = new Post(1L, null, "Test", "Body");
-           
-           service.createPostReactive(newPost)
-                   .as(StepVerifier::create)
-                   .assertNext(post -> assertNotNull(post.id()))
-                   .verifyComplete();
-       }
-   }
-   ```
-
-### Step 4: Performance Comparison
-
-4. Add a performance comparison test:
-
-   ```java
-   @Test
-   void compareBlockingVsReactive() {
-       long start = System.currentTimeMillis();
-       
-       // Blocking approach - sequential
-       for (int i = 1; i <= 5; i++) {
-           restClient.get()
-                   .uri("/users/" + i)
-                   .retrieve()
-                   .body(SimpleUser.class);
-       }
-       long blockingTime = System.currentTimeMillis() - start;
-       
-       // Reactive approach - parallel
-       start = System.currentTimeMillis();
-       Flux.range(1, 5)
-               .flatMap(i -> service.getUserByIdReactive(Long.valueOf(i)))
-               .collectList()
-               .block();
-       long reactiveTime = System.currentTimeMillis() - start;
-       
-       logger.info("Blocking: {}ms, Reactive: {}ms", blockingTime, reactiveTime);
-       // Reactive should be faster due to parallel execution
-   }
-   ```
-
-### Key Learning Points
-
-- **Reactive Types**: `Mono<T>` for 0-1 values, `Flux<T>` for 0-N values
-- **Non-Blocking**: Operations don't block threads
-- **Operators**: map, filter, flatMap, zip for data transformation
-- **Error Handling**: onErrorResume, onErrorReturn, retry
-- **Testing**: StepVerifier for asserting reactive streams
-- **Backpressure**: Automatic flow control
-- **Parallel Execution**: flatMap for concurrent operations
-
-> [!TIP]
-> Use reactive programming when you need high concurrency, streaming data, or composition of multiple asynchronous operations. For simple CRUD operations, `RestClient` might be sufficient.
-
-> [!WARNING]
-> Avoid calling `.block()` in production code as it defeats the purpose of reactive programming. Use it only in tests or at the edge of your application.
 
 [Back to Table of Contents](#table-of-contents)
 
@@ -1699,7 +1516,7 @@ This will enable logging for that specific class. You can use the logger for man
 
 ## Using the JDBC Client (Spring Boot 3.2+)
 
-Spring Framework 6.1 (included in Spring Boot 3.2+) introduced `JdbcClient`, a modern fluent API that serves as a more user-friendly alternative to `JdbcTemplate`. While `JdbcTemplate` remains widely used and fully supported, `JdbcClient` provides a cleaner, more readable approach that aligns with other modern Spring APIs like `RestClient` and `WebClient`.
+Spring Framework 6.1 (included in Spring Boot 3.2+) introduced `JdbcClient`, a modern fluent API that serves as a more user-friendly alternative to `JdbcTemplate`. While `JdbcTemplate` remains widely used and fully supported, `JdbcClient` provides a cleaner, more readable approach that aligns with other modern Spring APIs like `RestClient`.
 
 > [!NOTE]
 > This exercise uses the same database schema and `Officer` entity from the previous JdbcTemplate lab. You can continue with the same `persistence` project or create a new one following the same setup steps.

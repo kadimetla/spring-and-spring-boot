@@ -41,9 +41,9 @@ This repository contains three independent Spring Boot projects that demonstrate
 - **Purpose**: Consuming external REST APIs
 - **Features**:
   - Modern `RestClient` for synchronous calls
-  - `WebClient` for reactive/asynchronous calls
+  - HTTP Interfaces for declarative clients
   - JSON Placeholder API integration (no API keys required)
-  - NASA Open Data API examples
+  - Launch Library API for space data
   - Comprehensive error handling
 
 ### 📁 **persistence** - Database Access Patterns
@@ -150,7 +150,6 @@ cd shopping && ./gradlew test
 - **Web Layer Testing**: `@WebMvcTest` with MockMVC for REST API testing
 - **Service Layer Testing**: `@MockitoBean` for dependency mocking
 - **Entity Validation Testing**: Bean validation with constraint violation testing
-- **Reactive Testing**: `StepVerifier` for WebClient flows
 - **Database Testing**: Repository testing with `@DataJpaTest`
 - **Profile Testing**: `@ActiveProfiles` for environment-specific tests
 
@@ -162,9 +161,9 @@ cd shopping && ./gradlew test
 - **Configuration**: Externalized URLs and timeouts with `@Value` annotation
 - **Demonstrates**: Modern record classes, full HTTP method support, sync/async patterns, robust error handling
 
-### NASA Open Data
-- **Astronauts in Space**: Real-time space station crew data
-- **Demonstrates**: WebClient usage, reactive programming
+### Launch Library API
+- **Space Expeditions**: Active expedition and astronaut assignment data
+- **Demonstrates**: RestClient usage, nested JSON mapping, stream processing
 
 ## Development Environment
 
