@@ -6,7 +6,7 @@ Comprehensive hands-on exercises for learning Spring Boot fundamentals, from bas
 
 - **Java 17 or later** (Spring Boot 3.x requires Java 17+)
 - **Spring Boot 3.5.3** (current version)
-- **Gradle 8.14.2** (latest stable)
+- **Gradle 9.2.0** (latest stable)
 - IDE with Spring Boot support (IntelliJ IDEA, Spring Tool Suite, or VS Code)
 
 ## Lab Materials
@@ -159,7 +159,7 @@ cd shopping && ./gradlew test
 - **Users API**: Complex nested JSON structures with address and company data
 - **Posts API**: Complete CRUD operations (GET, POST, DELETE)
 - **Configuration**: Externalized URLs and timeouts with `@Value` annotation
-- **Demonstrates**: Modern record classes, full HTTP method support, sync/async patterns, robust error handling
+- **Demonstrates**: Modern record classes, full HTTP method support, robust error handling
 
 ### Launch Library API
 - **Space Expeditions**: Active expedition and astronaut assignment data

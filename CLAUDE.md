@@ -6,7 +6,7 @@ This file contains common commands and patterns for working with the Spring Boot
 
 - **Spring Boot Version**: 3.5.3
 - **Java Version**: 21 (standardized across all projects)
-- **Gradle Version**: 9.1.0
+- **Gradle Version**: 9.2.0
 - **Package Structure**: `com.kousenit.*`
 
 ## Project Structure
@@ -434,11 +434,11 @@ curl -X DELETE https://jsonplaceholder.typicode.com/posts/1
 curl -X DELETE https://jsonplaceholder.typicode.com/users/1
 ```
 
-### NASA Open Data API
+### Launch Library API
 
 ```bash
-# Test astronauts in space
-curl http://api.open-notify.org/astros.json
+# Get active space expeditions with astronaut assignments
+curl "https://ll.thespacedevs.com/2.3.0/expedition/?is_active=true&limit=5"
 ```
 
 ## Modern Java Features Examples
