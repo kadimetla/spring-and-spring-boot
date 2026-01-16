@@ -14,7 +14,7 @@ class LaunchLibraryServiceTest {
     private LaunchLibraryService service;
 
     @Test
-    void testService() {
+    void astronaut_aboard_station() {
         assertNotNull(service);
         service.getExpeditions()
                 .forEach(expedition -> {
