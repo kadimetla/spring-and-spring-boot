@@ -25,6 +25,15 @@ class LaunchLibraryServiceTest {
             assertThat(expedition.spacestation().name()).isNotBlank();
             assertThat(expedition.crew()).isNotEmpty();
         });
+
+        // Print the astronauts and what station they are aboard
+        expeditions.forEach(expedition -> {
+            String stationName = expedition.spacestation().name();
+            expedition.crew().forEach(member -> {
+                String astronautName = member.astronaut().name();
+                System.out.printf("%s is aboard the %s%n", astronautName, stationName);
+            });
+        });
     }
 
     @Test
@@ -48,5 +57,9 @@ class LaunchLibraryServiceTest {
         assertThat(crewCounts.values()).allSatisfy(count ->
                 assertThat(count).isPositive()
         );
+
+        // Print the crew counts for visual verification
+        crewCounts.forEach((station, count) ->
+                System.out.printf("There are %d astronauts aboard the %s%n", count, station));
     }
 }
